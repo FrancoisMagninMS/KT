@@ -13,11 +13,6 @@ terraform {
   }
 
   backend "azurerm" {
-    resource_group_name  = "rg-kt-tfstate"
-    storage_account_name = "stkttfstate"
-    container_name       = "tfstate"
-    key                  = "kt-infrastructure.tfstate"
-    use_azuread_auth     = true
   }
 }
 

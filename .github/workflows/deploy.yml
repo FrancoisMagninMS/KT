@@ -134,17 +134,30 @@ jobs:
           terraform_version: "1.10.3"
           terraform_wrapper: false
 
+      - name: Verify Terraform version
+        run: terraform version
+        working-directory: .
+
       - name: Debug env vars
         run: |
-          echo "ARM_CLIENT_ID is set: $([ -n \"$ARM_CLIENT_ID\" ] && echo YES || echo NO)"
-          echo "ARM_CLIENT_SECRET is set: $([ -n \"$ARM_CLIENT_SECRET\" ] && echo YES || echo NO)"
-          echo "ARM_TENANT_ID is set: $([ -n \"$ARM_TENANT_ID\" ] && echo YES || echo NO)"
-          echo "ARM_SUBSCRIPTION_ID is set: $([ -n \"$ARM_SUBSCRIPTION_ID\" ] && echo YES || echo NO)"
-          echo "ARM_USE_AZUREAD is set: $([ -n \"$ARM_USE_AZUREAD\" ] && echo YES || echo NO)"
+          echo "ARM_CLIENT_ID set: $( [ -z \"$ARM_CLIENT_ID\" ] && echo NO || echo YES )"
+          echo "ARM_TENANT_ID set: $( [ -z \"$ARM_TENANT_ID\" ] && echo NO || echo YES )"
+          echo "ARM_SUBSCRIPTION_ID set: $( [ -z \"$ARM_SUBSCRIPTION_ID\" ] && echo NO || echo YES )"
+          echo "ARM_USE_AZUREAD: $ARM_USE_AZUREAD"
         working-directory: .
 
       - name: Terraform Init
-        run: terraform init -reconfigure
+        run: |
+          terraform init -reconfigure \
+            -backend-config="resource_group_name=rg-kt-tfstate" \
+            -backend-config="storage_account_name=stkttfstate" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=kt-infrastructure.tfstate" \
+            -backend-config="use_azuread_auth=true" \
+            -backend-config="client_id=${ARM_CLIENT_ID}" \
+            -backend-config="client_secret=${ARM_CLIENT_SECRET}" \
+            -backend-config="tenant_id=${ARM_TENANT_ID}" \
+            -backend-config="subscription_id=${ARM_SUBSCRIPTION_ID}"
 
       - name: Terraform Validate
         run: terraform validate
