@@ -98,25 +98,30 @@ jobs:
           STORAGE_ID=$(az storage account show --name stkttfstate --resource-group rg-kt-tfstate --query id -o tsv)
           SP_OBJECT_ID=$(az ad sp show --id "${{ secrets.AZURE_CLIENT_ID }}" --query id -o tsv)
 
+          echo "Storage Account ID: $STORAGE_ID"
+          echo "SP Object ID: $SP_OBJECT_ID"
+
           az role assignment create \
             --assignee-object-id "$SP_OBJECT_ID" \
             --assignee-principal-type ServicePrincipal \
             --role "Storage Blob Data Contributor" \
             --scope "$STORAGE_ID" \
-            -o none 2>/dev/null || true
-
-          # Wait for RBAC propagation
-          echo "Waiting 60s for RBAC propagation..."
-          sleep 60
+            -o none || echo "Role assignment may already exist"
 
           # Verify the role assignment
           echo "Verifying role assignment..."
-          az role assignment list \
+          ROLE_COUNT=$(az role assignment list \
             --assignee "$SP_OBJECT_ID" \
             --scope "$STORAGE_ID" \
             --role "Storage Blob Data Contributor" \
-            --query "[].{role:roleDefinitionName, scope:scope}" \
-            -o table
+            --query "length(@)" -o tsv)
+
+          if [ "$ROLE_COUNT" -eq 0 ]; then
+            echo "::error::Storage Blob Data Contributor role not assigned! Check SP permissions."
+            exit 1
+          fi
+
+          echo "Role assignment verified ($ROLE_COUNT assignment(s) found)"
 
   terraform:
     name: Terraform ${{ github.event.inputs.action }}
