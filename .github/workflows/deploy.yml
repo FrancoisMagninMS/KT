@@ -95,13 +95,28 @@ jobs:
             -o none 2>/dev/null || true
 
           # Assign Storage Blob Data Contributor to the SP for Azure AD-based backend auth
+          STORAGE_ID=$(az storage account show --name stkttfstate --resource-group rg-kt-tfstate --query id -o tsv)
           SP_OBJECT_ID=$(az ad sp show --id "${{ secrets.AZURE_CLIENT_ID }}" --query id -o tsv)
+
           az role assignment create \
             --assignee-object-id "$SP_OBJECT_ID" \
             --assignee-principal-type ServicePrincipal \
             --role "Storage Blob Data Contributor" \
-            --scope $(az storage account show --name stkttfstate --resource-group rg-kt-tfstate --query id -o tsv) \
+            --scope "$STORAGE_ID" \
             -o none 2>/dev/null || true
+
+          # Wait for RBAC propagation
+          echo "Waiting 60s for RBAC propagation..."
+          sleep 60
+
+          # Verify the role assignment
+          echo "Verifying role assignment..."
+          az role assignment list \
+            --assignee "$SP_OBJECT_ID" \
+            --scope "$STORAGE_ID" \
+            --role "Storage Blob Data Contributor" \
+            --query "[].{role:roleDefinitionName, scope:scope}" \
+            -o table
 
   terraform:
     name: Terraform ${{ github.event.inputs.action }}
