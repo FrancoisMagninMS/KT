@@ -25,8 +25,52 @@ env:
   TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
 
 jobs:
+  validate-config:
+    name: Validate Configuration
+    runs-on: ubuntu-latest
+    environment: DEV
+    steps:
+      - name: Check required secrets and variables
+        run: |
+          missing=0
+
+          check_secret() {
+            if [ -z "$1" ]; then
+              echo "::error::Missing secret: $2"
+              missing=1
+            else
+              echo "✓ Secret $2 is set"
+            fi
+          }
+
+          check_var() {
+            if [ -z "$1" ]; then
+              echo "::error::Missing variable: $2"
+              missing=1
+            else
+              echo "✓ Variable $2 = $1"
+            fi
+          }
+
+          check_secret "${{ secrets.AZURE_CLIENT_ID }}" "AZURE_CLIENT_ID"
+          check_secret "${{ secrets.AZURE_CLIENT_SECRET }}" "AZURE_CLIENT_SECRET"
+          check_secret "${{ secrets.AZURE_SUBSCRIPTION_ID }}" "AZURE_SUBSCRIPTION_ID"
+          check_secret "${{ secrets.AZURE_TENANT_ID }}" "AZURE_TENANT_ID"
+          check_secret "${{ secrets.PG_ADMIN_PASSWORD }}" "PG_ADMIN_PASSWORD"
+          check_var "${{ vars.ALERT_EMAIL }}" "ALERT_EMAIL"
+
+          if [ "$missing" -eq 1 ]; then
+            echo ""
+            echo "::error::One or more required secrets/variables are missing. Run scripts/setup-github.ps1 to configure them."
+            exit 1
+          fi
+
+          echo ""
+          echo "All required configuration is present."
+
   bootstrap:
     name: Bootstrap Terraform Backend
+    needs: validate-config
     runs-on: ubuntu-latest
     environment: DEV
     steps:
