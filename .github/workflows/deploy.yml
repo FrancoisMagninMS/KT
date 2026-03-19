@@ -27,6 +27,7 @@ jobs:
   bootstrap:
     name: Bootstrap Terraform Backend
     runs-on: ubuntu-latest
+    environment: DEV
     steps:
       - name: Azure Login
         uses: azure/login@v2
@@ -59,6 +60,7 @@ jobs:
     name: Terraform ${{ github.event.inputs.action }}
     needs: bootstrap
     runs-on: ubuntu-latest
+    environment: DEV
     defaults:
       run:
         working-directory: terraform
