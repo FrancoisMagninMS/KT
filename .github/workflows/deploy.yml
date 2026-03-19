@@ -15,14 +15,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-  ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
   ARM_USE_AZUREAD: true
-  TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  TF_VAR_pg_admin_password: ${{ secrets.PG_ADMIN_PASSWORD }}
-  TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
 
 jobs:
   validate-config:
@@ -115,6 +108,14 @@ jobs:
     needs: bootstrap
     runs-on: ubuntu-latest
     environment: DEV
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_pg_admin_password: ${{ secrets.PG_ADMIN_PASSWORD }}
+      TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
     defaults:
       run:
         working-directory: terraform
