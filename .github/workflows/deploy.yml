@@ -129,7 +129,13 @@ jobs:
           terraform_version: "1.10.3"
 
       - name: Terraform Init
-        run: terraform init -reconfigure
+        run: |
+          terraform init -reconfigure \
+            -backend-config="use_azuread_auth=true" \
+            -backend-config="client_id=$ARM_CLIENT_ID" \
+            -backend-config="client_secret=$ARM_CLIENT_SECRET" \
+            -backend-config="tenant_id=$ARM_TENANT_ID" \
+            -backend-config="subscription_id=$ARM_SUBSCRIPTION_ID"
 
       - name: Terraform Validate
         run: terraform validate
