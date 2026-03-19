@@ -49,12 +49,50 @@ Write-Host "`nUsing subscription: $subscriptionName ($subscriptionId)" -Foregrou
 & $az account set --subscription $subscriptionId
 
 # Create the service principal with Contributor role scoped to the subscription
-Write-Host "`nCreating service principal 'sp-kt-github'..." -ForegroundColor Cyan
-$sp = & $az ad sp create-for-rbac `
+# Use 30-day credential lifetime to comply with Azure AD policies
+$endDate = (Get-Date).AddDays(30).ToString("yyyy-MM-dd")
+Write-Host "`nCreating service principal 'sp-kt-github' (credential expires $endDate)..." -ForegroundColor Cyan
+
+# Step 1: Try create-for-rbac with short lifetime
+$spJson = & $az ad sp create-for-rbac `
     --name "sp-kt-github" `
     --role Contributor `
     --scopes "/subscriptions/$subscriptionId" `
-    --output json | ConvertFrom-Json
+    --output json 2>&1
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Default credential lifetime rejected by policy, using 30-day lifetime..." -ForegroundColor Yellow
+
+    # Ensure app registration exists (may already exist from a failed attempt)
+    $app = & $az ad app list --display-name "sp-kt-github" --query "[0].appId" -o tsv
+    if (-not $app) {
+        $app = (& $az ad app create --display-name "sp-kt-github" --output json | ConvertFrom-Json).appId
+    }
+
+    # Ensure service principal exists
+    $spExists = & $az ad sp list --filter "appId eq '$app'" --query "[0].appId" -o tsv
+    if (-not $spExists) {
+        & $az ad sp create --id $app --output none
+    }
+
+    # Reset credentials with short lifetime
+    $cred = & $az ad app credential reset --id $app --end-date $endDate --output json | ConvertFrom-Json
+
+    # Ensure Contributor role assignment
+    & $az role assignment create `
+        --assignee $app `
+        --role Contributor `
+        --scope "/subscriptions/$subscriptionId" `
+        --output none 2>$null
+
+    $sp = [PSCustomObject]@{
+        appId    = $cred.appId
+        password = $cred.password
+        tenant   = $cred.tenant
+    }
+} else {
+    $sp = $spJson | ConvertFrom-Json
+}
 
 # Display the values to configure in GitHub
 Write-Host "`n==============================================" -ForegroundColor Yellow
