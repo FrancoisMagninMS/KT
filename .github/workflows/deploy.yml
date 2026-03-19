@@ -56,6 +56,15 @@ jobs:
             --auth-mode login \
             -o none 2>/dev/null || true
 
+          # Assign Storage Blob Data Contributor to the SP for Azure AD-based backend auth
+          SP_OBJECT_ID=$(az ad sp show --id "${{ secrets.AZURE_CLIENT_ID }}" --query id -o tsv)
+          az role assignment create \
+            --assignee-object-id "$SP_OBJECT_ID" \
+            --assignee-principal-type ServicePrincipal \
+            --role "Storage Blob Data Contributor" \
+            --scope $(az storage account show --name stkttfstate --resource-group rg-kt-tfstate --query id -o tsv) \
+            -o none 2>/dev/null || true
+
   terraform:
     name: Terraform ${{ github.event.inputs.action }}
     needs: bootstrap

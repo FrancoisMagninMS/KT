@@ -17,6 +17,7 @@ terraform {
     storage_account_name = "stkttfstate"
     container_name       = "tfstate"
     key                  = "kt-infrastructure.tfstate"
+    use_azuread_auth     = true
   }
 }
 
