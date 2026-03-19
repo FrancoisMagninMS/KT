@@ -132,6 +132,16 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.10.3"
+          terraform_wrapper: false
+
+      - name: Debug env vars
+        run: |
+          echo "ARM_CLIENT_ID is set: $([ -n \"$ARM_CLIENT_ID\" ] && echo YES || echo NO)"
+          echo "ARM_CLIENT_SECRET is set: $([ -n \"$ARM_CLIENT_SECRET\" ] && echo YES || echo NO)"
+          echo "ARM_TENANT_ID is set: $([ -n \"$ARM_TENANT_ID\" ] && echo YES || echo NO)"
+          echo "ARM_SUBSCRIPTION_ID is set: $([ -n \"$ARM_SUBSCRIPTION_ID\" ] && echo YES || echo NO)"
+          echo "ARM_USE_AZUREAD is set: $([ -n \"$ARM_USE_AZUREAD\" ] && echo YES || echo NO)"
+        working-directory: .
 
       - name: Terraform Init
         run: terraform init -reconfigure

@@ -18,7 +18,6 @@ terraform {
     container_name       = "tfstate"
     key                  = "kt-infrastructure.tfstate"
     use_azuread_auth     = true
-    use_cli              = true
   }
 }
 
