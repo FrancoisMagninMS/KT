@@ -1,0 +1,39 @@
+# Copy this file to terraform.tfvars and fill in the values.
+# Sensitive values should be set via environment variables or GitHub Secrets:
+#   TF_VAR_subscription_id
+#   TF_VAR_pg_admin_password
+#   TF_VAR_alert_email
+
+# ── Core ─────────────────────────────────────────────────────
+# subscription_id = "00000000-0000-0000-0000-000000000000"
+location    = "koreacentral"
+environment = "prod"
+project     = "kt"
+
+# ── Networking ───────────────────────────────────────────────
+vnet_address_space = ["10.0.0.0/16"]
+aks_subnet_prefix  = "10.0.0.0/22"
+aca_subnet_prefix  = "10.0.4.0/23"
+pg_subnet_prefix   = "10.0.6.0/24"
+
+# ── AKS ──────────────────────────────────────────────────────
+aks_node_count     = 3
+aks_vm_size        = "Standard_D4s_v5"
+kubernetes_version = "1.29"
+
+# ── PostgreSQL ───────────────────────────────────────────────
+pg_sku             = "GP_Standard_D2s_v3"
+pg_storage_mb      = 32768
+pg_version         = "16"
+pg_admin_login     = "pgadmin"
+# pg_admin_password = "<set via TF_VAR_pg_admin_password>"
+pg_max_connections = 200
+
+# ── Log Analytics ────────────────────────────────────────────
+law_retention_days = 30
+
+# ── ACR ──────────────────────────────────────────────────────
+acr_sku = "Standard"
+
+# ── Alerts ───────────────────────────────────────────────────
+# alert_email = "<set via TF_VAR_alert_email>"
