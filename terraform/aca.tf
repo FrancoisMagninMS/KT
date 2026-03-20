@@ -6,6 +6,7 @@ resource "azurerm_container_app_environment" "aca" {
   infrastructure_subnet_id       = azurerm_subnet.aca.id
   internal_load_balancer_enabled = true
   zone_redundancy_enabled        = false
+  public_network_access_enabled  = false
 
   workload_profile {
     name                  = "Consumption"
