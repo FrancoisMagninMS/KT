@@ -308,7 +308,7 @@ jobs:
         run: terraform validate
 
       - name: Terraform Plan
-        run: terraform plan -out=tfplan
+        run: terraform plan -lock-timeout=5m -out=tfplan
 
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
@@ -319,7 +319,7 @@ jobs:
 
       - name: Terraform Apply
         if: needs.should-deploy-dev.outputs.action == 'apply'
-        run: terraform apply -auto-approve tfplan
+        run: terraform apply -lock-timeout=5m -auto-approve tfplan
 
       - name: Export Terraform Outputs
         if: needs.should-deploy-dev.outputs.action == 'apply'
@@ -331,7 +331,7 @@ jobs:
 
       - name: Terraform Destroy
         if: needs.should-deploy-dev.outputs.action == 'destroy'
-        run: terraform destroy -auto-approve
+        run: terraform destroy -lock-timeout=5m -auto-approve
 
     outputs:
       acr_login_server: ${{ steps.tf_outputs.outputs.acr_login_server }}
@@ -510,7 +510,7 @@ jobs:
         run: terraform validate
 
       - name: Terraform Plan
-        run: terraform plan -out=tfplan
+        run: terraform plan -lock-timeout=5m -out=tfplan
 
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
@@ -520,7 +520,7 @@ jobs:
           retention-days: 5
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
+        run: terraform apply -lock-timeout=5m -auto-approve tfplan
 
       - name: Export Terraform Outputs
         id: tf_outputs
@@ -701,7 +701,7 @@ jobs:
         run: terraform validate
 
       - name: Terraform Plan
-        run: terraform plan -out=tfplan
+        run: terraform plan -lock-timeout=5m -out=tfplan
 
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
@@ -711,7 +711,7 @@ jobs:
           retention-days: 5
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
+        run: terraform apply -lock-timeout=5m -auto-approve tfplan
 
       - name: Export Terraform Outputs
         id: tf_outputs
@@ -892,7 +892,7 @@ jobs:
         run: terraform validate
 
       - name: Terraform Plan
-        run: terraform plan -out=tfplan
+        run: terraform plan -lock-timeout=5m -out=tfplan
 
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
@@ -902,7 +902,7 @@ jobs:
           retention-days: 5
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
+        run: terraform apply -lock-timeout=5m -auto-approve tfplan
 
       - name: Export Terraform Outputs
         id: tf_outputs
@@ -1081,7 +1081,7 @@ jobs:
 
       - name: Terraform Plan
         if: github.event.inputs.action == 'plan'
-        run: terraform plan -out=tfplan
+        run: terraform plan -lock-timeout=5m -out=tfplan
 
       - name: Upload Terraform Plan
         if: github.event.inputs.action == 'plan'
@@ -1093,4 +1093,4 @@ jobs:
 
       - name: Terraform Destroy
         if: github.event.inputs.action == 'destroy'
-        run: terraform destroy -auto-approve
+        run: terraform destroy -lock-timeout=5m -auto-approve
