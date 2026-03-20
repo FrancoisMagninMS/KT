@@ -33,7 +33,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_high_error_rate" {
   scopes               = [azurerm_log_analytics_workspace.main.id]
 
   criteria {
-    query                   = "AzureDiagnostics | where ResourceProvider == 'MICROSOFT.DBFORPOSTGRESQL' | where errorLevel_s in ('FATAL','PANIC','ERROR')"
+    query                   = "AzureDiagnostics | where ResourceProvider == 'MICROSOFT.DBFORPOSTGRESQL' | where Message has_any ('FATAL','PANIC','ERROR')"
     time_aggregation_method = "Count"
     operator                = "GreaterThan"
     threshold               = 10
@@ -83,7 +83,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_lock_wait" {
   scopes               = [azurerm_log_analytics_workspace.main.id]
 
   criteria {
-    query                   = "AzureDiagnostics | where ResourceProvider == 'MICROSOFT.DBFORPOSTGRESQL' | where (Message contains 'lock' or errorLevel_s == 'WARNING') and Message contains 'waiting'"
+    query                   = "AzureDiagnostics | where ResourceProvider == 'MICROSOFT.DBFORPOSTGRESQL' | where Message contains 'lock' and Message contains 'waiting'"
     time_aggregation_method = "Count"
     operator                = "GreaterThan"
     threshold               = 5
@@ -268,79 +268,10 @@ resource "azurerm_monitor_metric_alert" "pg_connections_near_max" {
 }
 
 ###############################################################################
-# C. REPLICATION & WAL ALERTS
+# C. WAL ALERTS
 ###############################################################################
 
-# C1a. Read Replica Lag — Warning (> 5s)
-resource "azurerm_monitor_metric_alert" "pg_replica_lag_warning" {
-  name                = "pg-replica-lag-warning"
-  resource_group_name = azurerm_resource_group.main.name
-  scopes              = [azurerm_postgresql_flexible_server.main.id]
-  description         = "Read replica lag exceeds 5 seconds (Warning)"
-  severity            = 2
-  window_size         = "PT15M"
-  frequency           = "PT1M"
-
-  criteria {
-    metric_namespace = "Microsoft.DBforPostgreSQL/flexibleServers"
-    metric_name      = "read_replica_lag"
-    aggregation      = "Average"
-    operator         = "GreaterThan"
-    threshold        = 5
-  }
-
-  action {
-    action_group_id = azurerm_monitor_action_group.main.id
-  }
-}
-
-# C1b. Read Replica Lag — Critical (> 30s)
-resource "azurerm_monitor_metric_alert" "pg_replica_lag_critical" {
-  name                = "pg-replica-lag-critical"
-  resource_group_name = azurerm_resource_group.main.name
-  scopes              = [azurerm_postgresql_flexible_server.main.id]
-  description         = "Read replica lag exceeds 30 seconds (Critical)"
-  severity            = 1
-  window_size         = "PT15M"
-  frequency           = "PT1M"
-
-  criteria {
-    metric_namespace = "Microsoft.DBforPostgreSQL/flexibleServers"
-    metric_name      = "read_replica_lag"
-    aggregation      = "Average"
-    operator         = "GreaterThan"
-    threshold        = 30
-  }
-
-  action {
-    action_group_id = azurerm_monitor_action_group.main.id
-  }
-}
-
-# C2. Physical Replication Lag (> 50 MB)
-resource "azurerm_monitor_metric_alert" "pg_physical_replication_lag" {
-  name                = "pg-physical-replication-lag"
-  resource_group_name = azurerm_resource_group.main.name
-  scopes              = [azurerm_postgresql_flexible_server.main.id]
-  description         = "Physical replication lag exceeds 50 MB on PostgreSQL"
-  severity            = 2
-  window_size         = "PT15M"
-  frequency           = "PT1M"
-
-  criteria {
-    metric_namespace = "Microsoft.DBforPostgreSQL/flexibleServers"
-    metric_name      = "physical_replication_lag_in_seconds"
-    aggregation      = "Average"
-    operator         = "GreaterThan"
-    threshold        = 60
-  }
-
-  action {
-    action_group_id = azurerm_monitor_action_group.main.id
-  }
-}
-
-# C3. WAL Growth Spike (Log-based)
+# C1. WAL Growth Spike (Log-based)
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_wal_growth_spike" {
   name                = "pg-wal-growth-spike"
   resource_group_name = azurerm_resource_group.main.name
