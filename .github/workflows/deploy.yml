@@ -17,6 +17,11 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   ARM_USE_AZUREAD: true
 
+permissions:
+  contents: read
+  security-events: write
+  id-token: write
+
 jobs:
   validate-config:
     name: Validate Configuration
@@ -46,7 +51,6 @@ jobs:
           }
 
           check_secret "${{ secrets.AZURE_CLIENT_ID }}" "AZURE_CLIENT_ID"
-          check_secret "${{ secrets.AZURE_CLIENT_SECRET }}" "AZURE_CLIENT_SECRET"
           check_secret "${{ secrets.AZURE_SUBSCRIPTION_ID }}" "AZURE_SUBSCRIPTION_ID"
           check_secret "${{ secrets.AZURE_TENANT_ID }}" "AZURE_TENANT_ID"
           check_secret "${{ secrets.PG_ADMIN_PASSWORD }}" "PG_ADMIN_PASSWORD"
@@ -65,12 +69,20 @@ jobs:
     name: Security Scanning
     needs: validate-config
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # ── Terraform format check ──
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.3"
+          terraform_wrapper: false
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+        working-directory: terraform
 
       # ── Terraform static analysis with tfsec ──
       - name: tfsec — Terraform Security Scanner
@@ -167,10 +179,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: DEV
     steps:
-      - name: Azure Login
+      - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
-          creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}'
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Create Terraform State Backend
         run: |
@@ -230,9 +244,9 @@ jobs:
     environment: DEV
     env:
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_USE_OIDC: 'true'
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       TF_VAR_pg_admin_password: ${{ secrets.PG_ADMIN_PASSWORD }}
       TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
@@ -243,10 +257,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Azure Login
+      - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
-          creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}'
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -264,6 +280,7 @@ jobs:
           echo "ARM_TENANT_ID set: $( [ -z \"$ARM_TENANT_ID\" ] && echo NO || echo YES )"
           echo "ARM_SUBSCRIPTION_ID set: $( [ -z \"$ARM_SUBSCRIPTION_ID\" ] && echo NO || echo YES )"
           echo "ARM_USE_AZUREAD: $ARM_USE_AZUREAD"
+          echo "ARM_USE_OIDC: $ARM_USE_OIDC"
         working-directory: .
 
       - name: Terraform Init
@@ -275,15 +292,25 @@ jobs:
             -backend-config="key=kt-infrastructure.tfstate" \
             -backend-config="use_azuread_auth=true" \
             -backend-config="client_id=${ARM_CLIENT_ID}" \
-            -backend-config="client_secret=${ARM_CLIENT_SECRET}" \
             -backend-config="tenant_id=${ARM_TENANT_ID}" \
-            -backend-config="subscription_id=${ARM_SUBSCRIPTION_ID}"
+            -backend-config="subscription_id=${ARM_SUBSCRIPTION_ID}" \
+            -backend-config="use_oidc=true"
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
 
       - name: Terraform Validate
         run: terraform validate
 
       - name: Terraform Plan
         run: terraform plan -out=tfplan
+
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ github.run_id }}
+          path: terraform/tfplan
+          retention-days: 5
 
       - name: Terraform Apply
         if: github.event.inputs.action == 'apply'
@@ -316,10 +343,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Azure Login
+      - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
-          creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}'
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Log in to ACR
         run: az acr login --name "${{ needs.terraform.outputs.acr_login_server }}"
@@ -350,10 +379,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Azure Login
+      - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
-          creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}'
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Prepare K8s Manifests
         run: |
@@ -392,10 +423,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: DEV
     steps:
-      - name: Azure Login
+      - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
-          creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}'
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Update ACA Container Image
         run: |

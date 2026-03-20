@@ -1,0 +1,137 @@
+name: PR Security Checks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: read
+
+jobs:
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+
+  terraform-checks:
+    name: Terraform Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.3"
+          terraform_wrapper: false
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+        working-directory: terraform
+
+      - name: Terraform Init (no backend)
+        run: terraform init -backend=false
+        working-directory: terraform
+
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: terraform
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+
+      - name: Run TFLint
+        run: |
+          tflint --init
+          tflint --format compact --force
+        working-directory: terraform
+
+      - name: tfsec
+        uses: aquasecurity/tfsec-action@v1
+        with:
+          working_directory: terraform
+          soft_fail: false
+          format: sarif
+          out: tfsec-results.sarif
+
+      - name: Upload tfsec SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: tfsec-results.sarif
+          category: tfsec-pr
+
+  container-scan:
+    name: Container Image Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for Dockerfiles
+        id: check_dockerfiles
+        run: |
+          if find . -name "Dockerfile" -type f | grep -q .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No Dockerfiles found — skipping container scan"
+          fi
+
+      - name: Build container images for scanning
+        if: steps.check_dockerfiles.outputs.found == 'true'
+        run: |
+          for dockerfile in $(find . -name "Dockerfile" -type f); do
+            dir=$(dirname "$dockerfile")
+            name=$(basename "$dir")
+            echo "Building $name from $dir..."
+            docker build -t "scan-${name}:latest" "$dir"
+          done
+
+      - name: Trivy Container Vulnerability Scan
+        if: steps.check_dockerfiles.outputs.found == 'true'
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+          for dockerfile in $(find . -name "Dockerfile" -type f); do
+            dir=$(dirname "$dockerfile")
+            name=$(basename "$dir")
+            echo "::group::Scanning $name"
+            trivy image --exit-code 1 --severity HIGH,CRITICAL \
+              --format table "scan-${name}:latest"
+            echo "::endgroup::"
+          done

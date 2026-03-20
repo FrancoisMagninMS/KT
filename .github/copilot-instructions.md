@@ -26,6 +26,7 @@ Azure infrastructure-as-code project deploying AKS, ACA, PostgreSQL Flexible Ser
 - Version 1.31 and 1.30 are **LTS-only** in koreacentral — use 1.32+ or verify with `az aks get-versions --location koreacentral`
 - Uses Azure CNI with user-assigned identity for the control plane and kubelet
 - OMS agent enabled for Container Insights
+- Azure AD RBAC enabled (`azure_rbac_enabled = true`) — supports granular Kubernetes RBAC via Entra ID roles (Cluster Admin, Admin, Writer, Reader)
 - Outbound type: `userAssignedNATGateway` — all egress goes through a NAT Gateway with a single static public IP
 - `default_outbound_access_enabled = false` on the AKS subnet (no Azure default SNAT)
 
@@ -67,27 +68,36 @@ Azure infrastructure-as-code project deploying AKS, ACA, PostgreSQL Flexible Ser
 
 ## GitHub Actions Workflow
 
+- **Authentication**: OIDC Workload Identity Federation from GitHub → Entra ID (no client secrets). Run `scripts/setup-oidc.ps1` to configure federated credentials
 - Environment: `DEV` (secrets/variables are scoped to this environment)
-- Secrets (`AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `PG_ADMIN_PASSWORD`) must be set as environment-level secrets, not repository-level
+- Secrets (`AZURE_CLIENT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `PG_ADMIN_PASSWORD`) must be set as environment-level secrets, not repository-level. `AZURE_CLIENT_SECRET` is **not needed** with OIDC
 - Variables (`ALERT_EMAIL`) are set at the environment level
-- `ARM_*` env vars must be defined at the **job** level (not workflow level) to access environment-scoped secrets
+- `ARM_*` env vars must be defined at the **job** level (not workflow level) to access environment-scoped secrets. Use `ARM_USE_OIDC: 'true'` for Terraform OIDC authentication
 
-### Pipeline Jobs
+### Pipeline Jobs (`deploy.yml` — `workflow_dispatch`)
 
 1. **validate-config** — Checks required secrets/variables
-2. **security-scan** — tfsec, TFLint, Checkov, TruffleHog, Trivy (SARIF uploaded to GitHub Security tab)
+2. **security-scan** — terraform fmt, tfsec, TFLint, Checkov, TruffleHog, Trivy (SARIF uploaded to GitHub Security tab)
 3. **bootstrap** — Creates Terraform state backend storage
-4. **terraform** — `plan` / `apply` / `destroy`
+4. **terraform** — `plan` / `apply` / `destroy` (plan artifact uploaded for audit)
 5. **build-and-push** — Builds container images via ACR Tasks (on apply)
 6. **deploy-aks** — Deploys to private AKS via `az aks command invoke` (on apply)
 7. **deploy-aca** — Updates ACA container app image (on apply)
+
+### PR Checks (`pr-checks.yml` — on `pull_request` to `main`)
+
+1. **CodeQL** — SAST analysis for application code
+2. **Dependency Review** — SCA for vulnerable dependencies in PRs
+3. **Terraform Validation** — fmt, init, validate, TFLint, tfsec
+4. **Container Scan** — Trivy vulnerability scan of Dockerfiles
 
 ## Pipeline Security
 
 - **Least-privilege SP**: The service principal should have only the roles it needs (Contributor, User Access Administrator, Storage Blob Data Contributor). Never grant Owner
 - **No secrets in logs**: Never `echo` or print secret values. Use `::add-mask::` for any dynamically-derived sensitive values. The `Debug env vars` step must only check set/unset — never print values
 - **Pin action versions**: Always pin GitHub Actions to a major tag (`@v4`, `@v3`), or to a full SHA for third-party actions. Never use `@latest` or `@main`
-- **Credential rotation**: SP credentials are limited to 30 days by Azure AD policy. Plan for rotation and never hardcode credentials in files
+- **OIDC authentication**: Use Workload Identity Federation from GitHub → Entra ID (no client secrets). Run `scripts/setup-oidc.ps1` to configure federated credentials. Federated credentials don't expire — no rotation needed
+- **Dependabot**: Automated dependency updates for GitHub Actions, Python packages, and Terraform providers via `.github/dependabot.yml`
 - **Backend security**: Terraform state contains sensitive data. The backend storage account must have `allow-blob-public-access false`, `min-tls-version TLS1_2`, and Azure AD auth (`use_azuread_auth=true`). Never use storage account keys
 - **Terraform plan review**: `plan` must always run before `apply`. Never skip the plan step or run `apply` without `-out=tfplan` to ensure what was reviewed is what gets applied
 - **No `--no-verify` or `-auto-approve` bypasses**: Except in CI after a plan has been generated, never bypass safety checks
