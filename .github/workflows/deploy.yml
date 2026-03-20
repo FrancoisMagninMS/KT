@@ -61,9 +61,109 @@ jobs:
           echo ""
           echo "All required configuration is present."
 
+  security-scan:
+    name: Security Scanning
+    needs: validate-config
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Terraform static analysis with tfsec ──
+      - name: tfsec — Terraform Security Scanner
+        uses: aquasecurity/tfsec-action@v1
+        with:
+          working_directory: terraform
+          soft_fail: false
+          format: sarif
+          out: tfsec-results.sarif
+
+      - name: Upload tfsec SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: tfsec-results.sarif
+          category: tfsec
+
+      # ── Terraform linting with TFLint ──
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+
+      - name: Init TFLint
+        run: tflint --init
+        working-directory: terraform
+
+      - name: Run TFLint
+        run: tflint --format compact --force
+        working-directory: terraform
+
+      # ── Checkov — broad IaC policy scanning ──
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform
+          framework: terraform
+          output_format: cli,sarif
+          output_file_path: console,checkov-results.sarif
+          soft_fail: true
+
+      - name: Upload Checkov SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov-results.sarif
+          category: checkov
+
+      # ── Detect secrets in code ──
+      - name: Detect Secrets
+        uses: trufflesecurity/trufflehog@v3
+        with:
+          extra_args: --only-verified --results=verified
+
+      # ── Container image scanning (runs only if Dockerfiles exist) ──
+      - name: Check for Dockerfiles
+        id: check_dockerfiles
+        run: |
+          if find . -name "Dockerfile" -type f | grep -q .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No Dockerfiles found — skipping container scan"
+          fi
+
+      - name: Build container images for scanning
+        if: steps.check_dockerfiles.outputs.found == 'true'
+        run: |
+          for dockerfile in $(find . -name "Dockerfile" -type f); do
+            dir=$(dirname "$dockerfile")
+            name=$(basename "$dir")
+            echo "Building $name from $dir..."
+            docker build -t "scan-${name}:latest" "$dir"
+          done
+
+      - name: Trivy — Container Vulnerability Scan
+        if: steps.check_dockerfiles.outputs.found == 'true'
+        run: |
+          # Install Trivy
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+          for dockerfile in $(find . -name "Dockerfile" -type f); do
+            dir=$(dirname "$dockerfile")
+            name=$(basename "$dir")
+            echo "::group::Scanning $name"
+            trivy image --exit-code 1 --severity HIGH,CRITICAL \
+              --format table "scan-${name}:latest"
+            echo "::endgroup::"
+          done
+
   bootstrap:
     name: Bootstrap Terraform Backend
-    needs: validate-config
+    needs: security-scan
     runs-on: ubuntu-latest
     environment: DEV
     steps:
