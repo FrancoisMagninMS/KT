@@ -1,8 +1,10 @@
 resource "azapi_resource" "aca_environment" {
-  type      = "Microsoft.App/managedEnvironments@2024-03-01"
+  type      = "Microsoft.App/managedEnvironments@2024-10-02-preview"
   name      = "cae-${var.project}-${var.environment}"
   location  = azurerm_resource_group.main.location
   parent_id = azurerm_resource_group.main.id
+
+  schema_validation_enabled = false
 
   body = {
     properties = {
