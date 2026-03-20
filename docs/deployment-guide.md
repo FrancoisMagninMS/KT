@@ -152,38 +152,136 @@ Since the ACA environment uses an **internal load balancer**, the FQDN resolves 
 
 ---
 
-## Step 5 — Test the Apps
+## Step 5 — Access the Apps (Private Network)
 
-Both apps are internal-only. To test them, you need a resource **inside the VNet** (e.g., a jumpbox VM, Azure Bastion, or VPN connection).
+Both apps are **private-only** — they have no public endpoints. The AKS API server, the AKS service LoadBalancer, and the ACA environment all resolve to private IPs within the VNet. You cannot reach them from the public internet or your local machine directly.
 
-### Option A — Quick test from AKS
+Choose one of the methods below to access the apps.
 
-Use `az aks command invoke` to curl from inside the cluster:
+### Method 1 — Azure Bastion + Jumpbox VM (recommended for demos)
+
+Deploy a small VM inside the VNet and connect via Azure Bastion (no public IP needed on the VM).
 
 ```bash
-# Test AKS app (using the service name within the cluster)
+RG="rg-kt-prod"
+
+# Create a Bastion subnet (required name: AzureBastionSubnet)
+az network vnet subnet create \
+  --resource-group $RG \
+  --vnet-name vnet-kt-prod \
+  --name AzureBastionSubnet \
+  --address-prefixes 10.0.7.0/26
+
+# Create a Bastion host
+az network bastion create \
+  --resource-group $RG \
+  --name bastion-kt-prod \
+  --vnet-name vnet-kt-prod \
+  --location koreacentral \
+  --sku Basic
+
+# Create a jumpbox VM in the AKS subnet (no public IP)
+az vm create \
+  --resource-group $RG \
+  --name vm-jumpbox \
+  --image Ubuntu2404 \
+  --size Standard_B2s \
+  --vnet-name vnet-kt-prod \
+  --subnet snet-aks \
+  --public-ip-address "" \
+  --admin-username azureuser \
+  --generate-ssh-keys
+```
+
+Connect via Bastion in the Azure Portal: **VM → Connect → Bastion**. Then from the VM:
+
+```bash
+# Test AKS app (use the internal LoadBalancer IP from Step 3)
+curl http://<AKS_SERVICE_PRIVATE_IP>
+
+# Test ACA app (use the internal FQDN)
+curl http://<ACA_INTERNAL_FQDN>
+```
+
+### Method 2 — `az aks command invoke` (AKS app only, no VM needed)
+
+For the AKS app, you can test directly via the Azure management plane — no VNet access required:
+
+```bash
+RG="rg-kt-prod"
+AKS="aks-kt-prod"
+
+# Test the AKS app via the service DNS name inside the cluster
 az aks command invoke \
   --resource-group $RG \
   --name $AKS \
   --command "curl -s http://hello-korea.default.svc.cluster.local"
-
-# Test ACA app (using the internal FQDN — requires VNet DNS resolution)
-# Get the ACA internal FQDN first:
-ACA_FQDN=$(az containerapp show --name ca-hello-korea --resource-group $RG --query "properties.configuration.ingress.fqdn" -o tsv)
-echo "ACA FQDN: $ACA_FQDN"
 ```
 
-### Option B — Test from a VM in the VNet
+This runs `curl` on a pod inside the cluster, so it can reach the internal service. This method **does not work for ACA** — it only reaches services inside the AKS cluster.
 
-If you have a VM in the VNet:
+### Method 3 — VPN Gateway (for ongoing development)
+
+For regular access from your workstation, set up a Point-to-Site VPN:
 
 ```bash
-# Test AKS (replace with the LoadBalancer private IP from Step 3)
-curl http://<AKS_SERVICE_PRIVATE_IP>
+# Create a GatewaySubnet
+az network vnet subnet create \
+  --resource-group $RG \
+  --vnet-name vnet-kt-prod \
+  --name GatewaySubnet \
+  --address-prefixes 10.0.8.0/27
 
-# Test ACA (replace with the internal FQDN)
+# Create a VPN gateway (takes ~30 minutes)
+az network vnet-gateway create \
+  --resource-group $RG \
+  --name vpngw-kt-prod \
+  --vnet vnet-kt-prod \
+  --gateway-type Vpn \
+  --vpn-type RouteBased \
+  --sku VpnGw1 \
+  --location koreacentral
+```
+
+After configuring the P2S VPN client on your machine, both apps will be reachable directly:
+
+```bash
+curl http://<AKS_SERVICE_PRIVATE_IP>
 curl http://<ACA_INTERNAL_FQDN>
 ```
+
+### Method 4 — Azure Cloud Shell with VNet integration
+
+If your subscription supports Cloud Shell VNet integration, you can mount it into the VNet and access both apps directly. See [Cloud Shell in a VNet](https://learn.microsoft.com/en-us/azure/cloud-shell/vnet/overview).
+
+### Getting the App Endpoints
+
+Regardless of which method you use, you need the private endpoints:
+
+```bash
+RG="rg-kt-prod"
+AKS="aks-kt-prod"
+
+# AKS — get the internal LoadBalancer IP
+az aks command invoke \
+  --resource-group $RG \
+  --name $AKS \
+  --command "kubectl get svc hello-korea -o jsonpath='{.status.loadBalancer.ingress[0].ip}'"
+
+# ACA — get the internal FQDN
+az containerapp show \
+  --name ca-hello-korea \
+  --resource-group $RG \
+  --query "properties.configuration.ingress.fqdn" -o tsv
+
+# ACA — get the environment's internal IP (for DNS-less testing)
+az containerapp env show \
+  --name cae-kt-prod \
+  --resource-group $RG \
+  --query "properties.staticIp" -o tsv
+```
+
+> **Note on ACA DNS**: The internal FQDN (e.g., `ca-hello-korea.internal.<env-unique-id>.koreacentral.azurecontainerapps.io`) resolves via the ACA environment's private DNS zone linked to the VNet. If testing from a VM in the VNet, DNS should resolve automatically. If not, use the static IP directly: `curl -H "Host: <ACA_FQDN>" http://<STATIC_IP>`
 
 ### Expected Output
 
