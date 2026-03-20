@@ -85,17 +85,16 @@ jobs:
         working-directory: terraform
 
       # ── Terraform static analysis with tfsec ──
+      - name: Install tfsec
+        run: |
+          curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+
       - name: tfsec — Terraform Security Scanner
-        uses: aquasecurity/tfsec-action@v1.0.3
-        with:
-          working_directory: terraform
-          soft_fail: false
-          format: sarif
-          out: tfsec-results.sarif
+        run: tfsec terraform --format sarif --out tfsec-results.sarif --soft-fail
 
       - name: Upload tfsec SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('tfsec-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: tfsec-results.sarif
           category: tfsec
@@ -125,8 +124,8 @@ jobs:
           soft_fail: true
 
       - name: Upload Checkov SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('checkov-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: checkov-results.sarif
           category: checkov

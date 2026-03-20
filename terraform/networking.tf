@@ -10,18 +10,18 @@ resource "azurerm_virtual_network" "main" {
 # ────────────────────────── subnets ──────────────────────────
 
 resource "azurerm_subnet" "aks" {
-  name                          = "snet-aks"
-  resource_group_name           = azurerm_resource_group.main.name
-  virtual_network_name          = azurerm_virtual_network.main.name
-  address_prefixes              = [var.aks_subnet_prefix]
+  name                            = "snet-aks"
+  resource_group_name             = azurerm_resource_group.main.name
+  virtual_network_name            = azurerm_virtual_network.main.name
+  address_prefixes                = [var.aks_subnet_prefix]
   default_outbound_access_enabled = false
 }
 
 resource "azurerm_subnet" "aca" {
-  name                          = "snet-aca"
-  resource_group_name           = azurerm_resource_group.main.name
-  virtual_network_name          = azurerm_virtual_network.main.name
-  address_prefixes              = [var.aca_subnet_prefix]
+  name                            = "snet-aca"
+  resource_group_name             = azurerm_resource_group.main.name
+  virtual_network_name            = azurerm_virtual_network.main.name
+  address_prefixes                = [var.aca_subnet_prefix]
   default_outbound_access_enabled = false
 
   delegation {
@@ -34,10 +34,10 @@ resource "azurerm_subnet" "aca" {
 }
 
 resource "azurerm_subnet" "postgresql" {
-  name                          = "snet-postgresql"
-  resource_group_name           = azurerm_resource_group.main.name
-  virtual_network_name          = azurerm_virtual_network.main.name
-  address_prefixes              = [var.pg_subnet_prefix]
+  name                            = "snet-postgresql"
+  resource_group_name             = azurerm_resource_group.main.name
+  virtual_network_name            = azurerm_virtual_network.main.name
+  address_prefixes                = [var.pg_subnet_prefix]
   default_outbound_access_enabled = false
 
   delegation {

@@ -23,11 +23,11 @@ resource "azurerm_monitor_action_group" "main" {
 
 # A1. High Error Rate (FATAL/ERROR/PANIC)
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_high_error_rate" {
-  name                = "pg-high-error-rate"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  description         = "High rate of FATAL/ERROR/PANIC log entries on PostgreSQL"
-  severity            = 1
+  name                 = "pg-high-error-rate"
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_resource_group.main.location
+  description          = "High rate of FATAL/ERROR/PANIC log entries on PostgreSQL"
+  severity             = 1
   evaluation_frequency = "PT5M"
   window_duration      = "PT5M"
   scopes               = [azurerm_log_analytics_workspace.main.id]
@@ -48,11 +48,11 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_high_error_rate" {
 
 # A2. Slow Query Spike
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_slowquery_spike" {
-  name                = "pg-slowquery-spike"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  description         = "High volume of slow queries (DurationMs > 500)"
-  severity            = 2
+  name                 = "pg-slowquery-spike"
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_resource_group.main.location
+  description          = "High volume of slow queries (DurationMs > 500)"
+  severity             = 2
   evaluation_frequency = "PT5M"
   window_duration      = "PT5M"
   scopes               = [azurerm_log_analytics_workspace.main.id]
@@ -73,11 +73,11 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_slowquery_spike" {
 
 # A3. Lock Wait / Blocking
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_lock_wait" {
-  name                = "pg-lock-wait"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  description         = "Excessive lock waits / blocked sessions on PostgreSQL"
-  severity            = 1
+  name                 = "pg-lock-wait"
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_resource_group.main.location
+  description          = "Excessive lock waits / blocked sessions on PostgreSQL"
+  severity             = 1
   evaluation_frequency = "PT5M"
   window_duration      = "PT5M"
   scopes               = [azurerm_log_analytics_workspace.main.id]
@@ -98,11 +98,11 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_lock_wait" {
 
 # A4. Autovacuum Issues / Table Bloat Risk
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_autovacuum_issues" {
-  name                = "pg-autovacuum-issues"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  description         = "Autovacuum cancelled or wraparound risk on PostgreSQL"
-  severity            = 1
+  name                 = "pg-autovacuum-issues"
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_resource_group.main.location
+  description          = "Autovacuum cancelled or wraparound risk on PostgreSQL"
+  severity             = 1
   evaluation_frequency = "PT5M"
   window_duration      = "PT10M"
   scopes               = [azurerm_log_analytics_workspace.main.id]
@@ -123,11 +123,11 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_autovacuum_issues"
 
 # A5. Checkpoint or IO Slowdown
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_long_checkpoints" {
-  name                = "pg-long-checkpoints"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  description         = "Long checkpoints detected (DurationMs > 10000) on PostgreSQL"
-  severity            = 2
+  name                 = "pg-long-checkpoints"
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_resource_group.main.location
+  description          = "Long checkpoints detected (DurationMs > 10000) on PostgreSQL"
+  severity             = 2
   evaluation_frequency = "PT5M"
   window_duration      = "PT10M"
   scopes               = [azurerm_log_analytics_workspace.main.id]
@@ -148,11 +148,11 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_long_checkpoints" 
 
 # A6. Connection Spike / Connection Exhaustion
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_connection_spike" {
-  name                = "pg-connection-spike"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  description         = "Connection spike detected on PostgreSQL (> 200 new connections in 5 min)"
-  severity            = 1
+  name                 = "pg-connection-spike"
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_resource_group.main.location
+  description          = "Connection spike detected on PostgreSQL (> 200 new connections in 5 min)"
+  severity             = 1
   evaluation_frequency = "PT5M"
   window_duration      = "PT5M"
   scopes               = [azurerm_log_analytics_workspace.main.id]
@@ -273,11 +273,11 @@ resource "azurerm_monitor_metric_alert" "pg_connections_near_max" {
 
 # C1. WAL Growth Spike (Log-based)
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_wal_growth_spike" {
-  name                = "pg-wal-growth-spike"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  description         = "Unusual WAL activity spike on PostgreSQL"
-  severity            = 2
+  name                 = "pg-wal-growth-spike"
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_resource_group.main.location
+  description          = "Unusual WAL activity spike on PostgreSQL"
+  severity             = 2
   evaluation_frequency = "PT5M"
   window_duration      = "PT10M"
   scopes               = [azurerm_log_analytics_workspace.main.id]

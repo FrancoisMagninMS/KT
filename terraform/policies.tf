@@ -89,17 +89,17 @@ resource "azurerm_policy_definition" "diagnostic_settings" {
           properties = {
             mode = "incremental"
             parameters = {
-              resourceId             = { value = "[field('id')]" }
+              resourceId              = { value = "[field('id')]" }
               logAnalyticsWorkspaceId = { value = "[parameters('logAnalyticsWorkspaceId')]" }
-              profileName            = { value = "[parameters('profileName')]" }
+              profileName             = { value = "[parameters('profileName')]" }
             }
             template = {
               "$schema"      = "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#"
               contentVersion = "1.0.0.0"
               parameters = {
-                resourceId             = { type = "string" }
+                resourceId              = { type = "string" }
                 logAnalyticsWorkspaceId = { type = "string" }
-                profileName            = { type = "string" }
+                profileName             = { type = "string" }
               }
               resources = [{
                 type       = "Microsoft.Insights/diagnosticSettings"
@@ -108,8 +108,8 @@ resource "azurerm_policy_definition" "diagnostic_settings" {
                 scope      = "[parameters('resourceId')]"
                 properties = {
                   workspaceId = "[parameters('logAnalyticsWorkspaceId')]"
-                  logs = [{ categoryGroup = "allLogs", enabled = true }]
-                  metrics = [{ category = "AllMetrics", enabled = true }]
+                  logs        = [{ categoryGroup = "allLogs", enabled = true }]
+                  metrics     = [{ category = "AllMetrics", enabled = true }]
                 }
               }]
             }
