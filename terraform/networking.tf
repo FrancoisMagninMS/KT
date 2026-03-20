@@ -134,16 +134,6 @@ resource "azurerm_network_security_rule" "aks_allow_azurecloud_outbound" {
   network_security_group_name = azurerm_network_security_group.aks.name
 }
 
-resource "azurerm_network_security_rule" "aks_deny_internet_outbound" {
-  name                        = "DenyInternetOutbound"
-  priority                    = 4000
-  direction                   = "Outbound"
-  access                      = "Deny"
-  protocol                    = "*"
-  source_port_range           = "*"
-  destination_port_range      = "*"
-  source_address_prefix       = "*"
-  destination_address_prefix  = "Internet"
-  resource_group_name         = azurerm_resource_group.main.name
-  network_security_group_name = azurerm_network_security_group.aks.name
-}
+# Note: AKS nodes require outbound internet for provisioning (package downloads,
+# image pulls, telemetry). Do NOT add a DenyInternetOutbound rule to this subnet.
+# Security is enforced via: private API server, internal LB, deny internet inbound.
