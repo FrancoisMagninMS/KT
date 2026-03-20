@@ -33,7 +33,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_high_error_rate" {
   scopes               = [azurerm_log_analytics_workspace.main.id]
 
   criteria {
-    query                   = "PostgreSQLLogs | where LogLevel in ('FATAL','PANIC','ERROR')"
+    query                   = "AzureDiagnostics | where ResourceProvider == 'MICROSOFT.DBFORPOSTGRESQL' | where errorLevel_s in ('FATAL','PANIC','ERROR')"
     time_aggregation_method = "Count"
     operator                = "GreaterThan"
     threshold               = 10
@@ -58,7 +58,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_slowquery_spike" {
   scopes               = [azurerm_log_analytics_workspace.main.id]
 
   criteria {
-    query                   = "PostgreSQLLogs | where DurationMs > 500"
+    query                   = "AzureDiagnostics | where ResourceProvider == 'MICROSOFT.DBFORPOSTGRESQL' | where DurationMs > 500"
     time_aggregation_method = "Count"
     operator                = "GreaterThan"
     threshold               = 20
@@ -83,7 +83,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_lock_wait" {
   scopes               = [azurerm_log_analytics_workspace.main.id]
 
   criteria {
-    query                   = "PostgreSQLLogs | where (Message contains 'lock' or LogLevel == 'WARNING') and Message contains 'waiting'"
+    query                   = "AzureDiagnostics | where ResourceProvider == 'MICROSOFT.DBFORPOSTGRESQL' | where (Message contains 'lock' or errorLevel_s == 'WARNING') and Message contains 'waiting'"
     time_aggregation_method = "Count"
     operator                = "GreaterThan"
     threshold               = 5
@@ -108,7 +108,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_autovacuum_issues"
   scopes               = [azurerm_log_analytics_workspace.main.id]
 
   criteria {
-    query                   = "PostgreSQLLogs | where Message contains 'autovacuum' and (Message contains 'cancelled' or Message contains 'wraparound')"
+    query                   = "AzureDiagnostics | where ResourceProvider == 'MICROSOFT.DBFORPOSTGRESQL' | where Message contains 'autovacuum' and (Message contains 'cancelled' or Message contains 'wraparound')"
     time_aggregation_method = "Count"
     operator                = "GreaterThan"
     threshold               = 0
@@ -133,7 +133,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_long_checkpoints" 
   scopes               = [azurerm_log_analytics_workspace.main.id]
 
   criteria {
-    query                   = "PostgreSQLLogs | where Message contains 'checkpoint' and DurationMs > 10000"
+    query                   = "AzureDiagnostics | where ResourceProvider == 'MICROSOFT.DBFORPOSTGRESQL' | where Message contains 'checkpoint' and DurationMs > 10000"
     time_aggregation_method = "Count"
     operator                = "GreaterThan"
     threshold               = 0
@@ -158,7 +158,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_connection_spike" 
   scopes               = [azurerm_log_analytics_workspace.main.id]
 
   criteria {
-    query                   = "PostgreSQLLogs | where Message contains 'connection authorized'"
+    query                   = "AzureDiagnostics | where ResourceProvider == 'MICROSOFT.DBFORPOSTGRESQL' | where Message contains 'connection authorized'"
     time_aggregation_method = "Count"
     operator                = "GreaterThan"
     threshold               = 200
@@ -329,10 +329,10 @@ resource "azurerm_monitor_metric_alert" "pg_physical_replication_lag" {
 
   criteria {
     metric_namespace = "Microsoft.DBforPostgreSQL/flexibleServers"
-    metric_name      = "physical_replication_lag_bytes"
+    metric_name      = "physical_replication_lag_in_seconds"
     aggregation      = "Average"
     operator         = "GreaterThan"
-    threshold        = 52428800
+    threshold        = 60
   }
 
   action {
@@ -352,7 +352,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_wal_growth_spike" 
   scopes               = [azurerm_log_analytics_workspace.main.id]
 
   criteria {
-    query                   = "PostgreSQLLogs | where Message contains 'WAL'"
+    query                   = "AzureDiagnostics | where ResourceProvider == 'MICROSOFT.DBFORPOSTGRESQL' | where Message contains 'WAL'"
     time_aggregation_method = "Count"
     operator                = "GreaterThan"
     threshold               = 50
