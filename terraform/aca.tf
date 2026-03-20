@@ -1,22 +1,37 @@
-resource "azurerm_container_app_environment" "aca" {
-  name                           = "cae-${var.project}-${var.environment}"
-  location                       = azurerm_resource_group.main.location
-  resource_group_name            = azurerm_resource_group.main.name
-  log_analytics_workspace_id     = azurerm_log_analytics_workspace.main.id
-  infrastructure_subnet_id       = azurerm_subnet.aca.id
-  internal_load_balancer_enabled = true
-  zone_redundancy_enabled        = false
-  public_network_access_enabled  = false
+resource "azapi_resource" "aca_environment" {
+  type      = "Microsoft.App/managedEnvironments@2024-03-01"
+  name      = "cae-${var.project}-${var.environment}"
+  location  = azurerm_resource_group.main.location
+  parent_id = azurerm_resource_group.main.id
 
-  workload_profile {
-    name                  = "Consumption"
-    workload_profile_type = "Consumption"
-  }
+  body = jsonencode({
+    properties = {
+      vnetConfiguration = {
+        infrastructureSubnetId = azurerm_subnet.aca.id
+        internal               = true
+      }
+      appLogsConfiguration = {
+        destination = "log-analytics"
+        logAnalyticsConfiguration = {
+          customerId = azurerm_log_analytics_workspace.main.workspace_id
+          sharedKey  = azurerm_log_analytics_workspace.main.primary_shared_key
+        }
+      }
+      workloadProfiles = [
+        {
+          name                = "Consumption"
+          workloadProfileType = "Consumption"
+        }
+      ]
+      zoneRedundant       = false
+      publicNetworkAccess = "Disabled"
+    }
+  })
 }
 
 resource "azurerm_container_app" "hello_korea" {
   name                         = "ca-hello-korea"
-  container_app_environment_id = azurerm_container_app_environment.aca.id
+  container_app_environment_id = azapi_resource.aca_environment.id
   resource_group_name          = azurerm_resource_group.main.name
   revision_mode                = "Single"
 

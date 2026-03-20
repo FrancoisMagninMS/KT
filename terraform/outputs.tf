@@ -29,7 +29,7 @@ output "aks_kube_config_command" {
 # ────────────────────────── ACA ──────────────────────────────
 
 output "aca_environment_name" {
-  value = azurerm_container_app_environment.aca.name
+  value = azapi_resource.aca_environment.name
 }
 
 output "aca_hello_korea_fqdn" {
