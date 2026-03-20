@@ -122,6 +122,7 @@ jobs:
           output_format: cli,sarif
           output_file_path: console,checkov-results.sarif
           soft_fail: true
+          config_file: terraform/.checkov.yaml
 
       - name: Upload Checkov SARIF
         if: always() && hashFiles('checkov-results.sarif') != ''

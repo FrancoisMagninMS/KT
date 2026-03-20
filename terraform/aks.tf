@@ -9,10 +9,11 @@ resource "azurerm_kubernetes_cluster" "aks" {
   private_cluster_public_fqdn_enabled = false
 
   default_node_pool {
-    name           = "system"
-    node_count     = var.aks_node_count
-    vm_size        = var.aks_vm_size
-    vnet_subnet_id = azurerm_subnet.aks.id
+    name                   = "system"
+    node_count             = var.aks_node_count
+    vm_size                = var.aks_vm_size
+    vnet_subnet_id         = azurerm_subnet.aks.id
+    enable_host_encryption = true
   }
 
   identity {
@@ -38,6 +39,8 @@ resource "azurerm_kubernetes_cluster" "aks" {
     azure_rbac_enabled = true
     tenant_id          = data.azurerm_client_config.current.tenant_id
   }
+
+  azure_policy_enabled = true
 
   network_profile {
     network_plugin = "azure"
