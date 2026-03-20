@@ -588,6 +588,14 @@ az storage blob lease break \
 
 **Fix**: Already resolved — all `upload-artifact` steps use `overwrite: true`.
 
+### Azure Policy blocks LAW creation
+
+**Error**: `RequestDisallowedByPolicy: Resource 'law-kt-dev' was disallowed by policy`
+
+**Cause**: Azure Policy resources (diagnostic settings, deny-extra-law) are subscription-scoped and must be managed by a single Terraform state. When multiple environments try to create the same subscription-level policy definitions, they conflict.
+
+**Fix**: Already resolved — all policy resources in `policies.tf` use `count = local.manage_policies ? 1 : 0` and are only created by the **prod** environment. The deny-extra-law policy allows all four LAW names (`law-kt-dev`, `law-kt-test`, `law-kt-qa`, `law-kt-prod`).
+
 Or manually:
 
 ```bash

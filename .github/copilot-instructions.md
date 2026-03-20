@@ -20,6 +20,7 @@ Azure infrastructure-as-code project deploying AKS, ACA, PostgreSQL Flexible Ser
 - **File organization**: One `.tf` file per resource domain — don't combine unrelated resources. Use section headers with `# ───── section ─────` comments
 - **Identity**: User-assigned managed identities for AKS and ACA; RBAC role assignments in the relevant resource files (e.g., ACR pull roles in `acr.tf`)
 - **Diagnostics**: Resources should send logs/metrics to the single Log Analytics Workspace (`azurerm_log_analytics_workspace.main`). AKS, ACR, and Key Vault diagnostics are managed by Azure Policy (`setByPolicy` — DeployIfNotExists); do **not** create Terraform diagnostic settings for those resources
+- **Policies**: Azure Policy resources in `policies.tf` are subscription-scoped and only managed by the `prod` environment (`count = local.manage_policies ? 1 : 0`). The deny-extra-law policy allows all four environment LAW names. Do **not** add `count` guards to non-policy resources
 
 ## AKS Specifics
 
