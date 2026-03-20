@@ -289,6 +289,125 @@ jobs:
         if: github.event.inputs.action == 'apply'
         run: terraform apply -auto-approve tfplan
 
+      - name: Export Terraform Outputs
+        if: github.event.inputs.action == 'apply'
+        id: tf_outputs
+        run: |
+          echo "acr_login_server=$(terraform output -raw acr_login_server)" >> "$GITHUB_OUTPUT"
+          echo "aks_cluster_name=$(terraform output -raw aks_cluster_name)" >> "$GITHUB_OUTPUT"
+          echo "resource_group_name=$(terraform output -raw resource_group_name)" >> "$GITHUB_OUTPUT"
+
       - name: Terraform Destroy
         if: github.event.inputs.action == 'destroy'
         run: terraform destroy -auto-approve
+
+    outputs:
+      acr_login_server: ${{ steps.tf_outputs.outputs.acr_login_server }}
+      aks_cluster_name: ${{ steps.tf_outputs.outputs.aks_cluster_name }}
+      resource_group_name: ${{ steps.tf_outputs.outputs.resource_group_name }}
+
+  build-and-push:
+    name: Build & Push Container Images
+    needs: terraform
+    if: github.event.inputs.action == 'apply'
+    runs-on: ubuntu-latest
+    environment: DEV
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}'
+
+      - name: Log in to ACR
+        run: az acr login --name "${{ needs.terraform.outputs.acr_login_server }}"
+
+      - name: Build & Push AKS Image
+        run: |
+          az acr build \
+            --registry "${{ needs.terraform.outputs.acr_login_server }}" \
+            --image hello-korea-aks:${{ github.sha }} \
+            --image hello-korea-aks:latest \
+            apps/hello-korea-aks/
+
+      - name: Build & Push ACA Image
+        run: |
+          az acr build \
+            --registry "${{ needs.terraform.outputs.acr_login_server }}" \
+            --image hello-korea-aca:${{ github.sha }} \
+            --image hello-korea-aca:latest \
+            apps/hello-korea-aca/
+
+  deploy-aks:
+    name: Deploy to AKS
+    needs: [terraform, build-and-push]
+    if: github.event.inputs.action == 'apply'
+    runs-on: ubuntu-latest
+    environment: DEV
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}'
+
+      - name: Prepare K8s Manifests
+        run: |
+          sed -i "s|__ACR_LOGIN_SERVER__|${{ needs.terraform.outputs.acr_login_server }}|g" apps/hello-korea-aks/k8s/deployment.yaml
+          # Use SHA tag for immutable deployments
+          sed -i "s|:latest|:${{ github.sha }}|g" apps/hello-korea-aks/k8s/deployment.yaml
+          echo "--- Final manifest ---"
+          cat apps/hello-korea-aks/k8s/deployment.yaml
+
+      - name: Deploy to Private AKS
+        run: |
+          RG="${{ needs.terraform.outputs.resource_group_name }}"
+          AKS="${{ needs.terraform.outputs.aks_cluster_name }}"
+
+          az aks command invoke \
+            --resource-group "$RG" \
+            --name "$AKS" \
+            --command "kubectl apply -f deployment.yaml -f service.yaml" \
+            --file apps/hello-korea-aks/k8s/deployment.yaml \
+            --file apps/hello-korea-aks/k8s/service.yaml
+
+      - name: Verify AKS Deployment
+        run: |
+          RG="${{ needs.terraform.outputs.resource_group_name }}"
+          AKS="${{ needs.terraform.outputs.aks_cluster_name }}"
+
+          az aks command invoke \
+            --resource-group "$RG" \
+            --name "$AKS" \
+            --command "kubectl rollout status deployment/hello-korea --timeout=120s"
+
+  deploy-aca:
+    name: Deploy to ACA
+    needs: [terraform, build-and-push]
+    if: github.event.inputs.action == 'apply'
+    runs-on: ubuntu-latest
+    environment: DEV
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}'
+
+      - name: Update ACA Container Image
+        run: |
+          az containerapp update \
+            --name ca-hello-korea \
+            --resource-group "${{ needs.terraform.outputs.resource_group_name }}" \
+            --image "${{ needs.terraform.outputs.acr_login_server }}/hello-korea-aca:${{ github.sha }}"
+
+      - name: Verify ACA Deployment
+        run: |
+          az containerapp show \
+            --name ca-hello-korea \
+            --resource-group "${{ needs.terraform.outputs.resource_group_name }}" \
+            --query "{name:name, provisioningState:properties.provisioningState, latestRevision:properties.latestRevisionName, runningStatus:properties.runningStatus}" \
+            -o table

@@ -16,6 +16,12 @@ output "log_analytics_workspace_name" {
   value = azurerm_log_analytics_workspace.main.name
 }
 
+# ────────────────────────── NAT Gateway ───────────────────────
+
+output "nat_gateway_public_ip" {
+  value = azurerm_public_ip.nat.ip_address
+}
+
 # ────────────────────────── AKS ──────────────────────────────
 
 output "aks_cluster_name" {
@@ -29,11 +35,11 @@ output "aks_kube_config_command" {
 # ────────────────────────── ACA ──────────────────────────────
 
 output "aca_environment_name" {
-  value = azurerm_container_app_environment.aca.name
+  value = azapi_resource.aca_environment.name
 }
 
-output "aca_placeholder_fqdn" {
-  value = azurerm_container_app.placeholder.ingress[0].fqdn
+output "aca_hello_korea_fqdn" {
+  value = azurerm_container_app.hello_korea.ingress[0].fqdn
 }
 
 # ────────────────────────── ACR ──────────────────────────────

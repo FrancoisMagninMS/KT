@@ -5,3 +5,23 @@ resource "azurerm_log_analytics_workspace" "main" {
   sku                 = "PerGB2018"
   retention_in_days   = var.law_retention_days
 }
+
+# ────────────────────────── diagnostic settings (LAW consolidation) ──
+
+resource "azurerm_monitor_diagnostic_setting" "vnet" {
+  name                       = "vnet-diagnostics"
+  target_resource_id         = azurerm_virtual_network.main.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+
+  enabled_log {
+    category_group = "allLogs"
+  }
+
+  metric {
+    category = "AllMetrics"
+    enabled  = true
+  }
+}
+
+# Note: AKS, ACR, and Key Vault diagnostic settings are managed by Azure Policy
+# (DeployIfNotExists policy creates 'setByPolicy' diagnostic settings automatically)

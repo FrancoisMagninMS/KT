@@ -21,3 +21,10 @@ resource "azurerm_role_assignment" "aca_acr_pull" {
   principal_id                     = azurerm_user_assigned_identity.aca.principal_id
   skip_service_principal_aad_check = true
 }
+
+# Deploying SP — push images from CI pipeline
+resource "azurerm_role_assignment" "sp_acr_push" {
+  scope                = azurerm_container_registry.acr.id
+  role_definition_name = "AcrPush"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
