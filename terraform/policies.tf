@@ -1,6 +1,19 @@
 locals {
   scope = "/subscriptions/${var.subscription_id}"
 
+  # Policy resources are subscription-scoped and must be managed by a single
+  # Terraform state to avoid conflicts.  Only the "prod" environment creates
+  # and manages them.
+  manage_policies = var.environment == "prod"
+
+  # All valid LAW names across environments (used by the deny policy)
+  allowed_law_names = [
+    "law-${var.project}-dev",
+    "law-${var.project}-test",
+    "law-${var.project}-qa",
+    "law-${var.project}-prod",
+  ]
+
   supported_resource_types = [
     "Microsoft.Compute/virtualMachines",
     "Microsoft.Network/networkSecurityGroups",
@@ -40,6 +53,7 @@ locals {
 ###############################################################################
 
 resource "azurerm_policy_definition" "diagnostic_settings" {
+  count        = local.manage_policies ? 1 : 0
   name         = "enable-diagnostic-settings"
   policy_type  = "Custom"
   mode         = "Indexed"
@@ -121,9 +135,10 @@ resource "azurerm_policy_definition" "diagnostic_settings" {
 }
 
 resource "azurerm_subscription_policy_assignment" "diagnostic_settings" {
+  count                = local.manage_policies ? 1 : 0
   name                 = "assign-diagnostic-settings"
   display_name         = "Enable Diagnostic Settings to Log Analytics"
-  policy_definition_id = azurerm_policy_definition.diagnostic_settings.id
+  policy_definition_id = azurerm_policy_definition.diagnostic_settings[0].id
   subscription_id      = local.scope
   location             = var.location
 
@@ -138,25 +153,28 @@ resource "azurerm_subscription_policy_assignment" "diagnostic_settings" {
 
 # MI role assignments for diagnostic settings policy
 resource "azurerm_role_assignment" "policy_monitoring_contributor" {
+  count                            = local.manage_policies ? 1 : 0
   scope                            = local.scope
   role_definition_id               = "${local.scope}${local.monitoring_contributor_role_id}"
-  principal_id                     = azurerm_subscription_policy_assignment.diagnostic_settings.identity[0].principal_id
+  principal_id                     = azurerm_subscription_policy_assignment.diagnostic_settings[0].identity[0].principal_id
   principal_type                   = "ServicePrincipal"
   skip_service_principal_aad_check = true
 }
 
 resource "azurerm_role_assignment" "policy_la_contributor" {
+  count                            = local.manage_policies ? 1 : 0
   scope                            = local.scope
   role_definition_id               = "${local.scope}${local.log_analytics_contributor_role_id}"
-  principal_id                     = azurerm_subscription_policy_assignment.diagnostic_settings.identity[0].principal_id
+  principal_id                     = azurerm_subscription_policy_assignment.diagnostic_settings[0].identity[0].principal_id
   principal_type                   = "ServicePrincipal"
   skip_service_principal_aad_check = true
 }
 
 resource "azurerm_subscription_policy_remediation" "diagnostic_settings" {
+  count                   = local.manage_policies ? 1 : 0
   name                    = "remediate-diagnostic-settings"
   subscription_id         = local.scope
-  policy_assignment_id    = azurerm_subscription_policy_assignment.diagnostic_settings.id
+  policy_assignment_id    = azurerm_subscription_policy_assignment.diagnostic_settings[0].id
   resource_discovery_mode = "ReEvaluateCompliance"
 
   depends_on = [
@@ -170,20 +188,21 @@ resource "azurerm_subscription_policy_remediation" "diagnostic_settings" {
 ###############################################################################
 
 resource "azurerm_policy_definition" "deny_extra_law" {
+  count        = local.manage_policies ? 1 : 0
   name         = "deny-extra-law"
   policy_type  = "Custom"
   mode         = "Indexed"
-  display_name = "Deny Log Analytics Workspaces except approved workspace"
-  description  = "Prevents creation of Log Analytics Workspaces that do not match the single approved workspace name."
+  display_name = "Deny Log Analytics Workspaces except approved workspaces"
+  description  = "Prevents creation of Log Analytics Workspaces that do not match the approved workspace names (one per environment)."
 
   metadata = jsonencode({ category = "Monitoring" })
 
   parameters = jsonencode({
-    allowedWorkspaceName = {
-      type = "String"
+    allowedWorkspaceNames = {
+      type = "Array"
       metadata = {
-        displayName = "Allowed Workspace Name"
-        description = "The name of the single allowed Log Analytics Workspace."
+        displayName = "Allowed Workspace Names"
+        description = "List of allowed Log Analytics Workspace names (one per environment)."
       }
     }
   })
@@ -192,7 +211,7 @@ resource "azurerm_policy_definition" "deny_extra_law" {
     if = {
       allOf = [
         { field = "type", equals = "Microsoft.OperationalInsights/workspaces" },
-        { field = "name", notEquals = "[parameters('allowedWorkspaceName')]" },
+        { field = "name", notIn = "[parameters('allowedWorkspaceNames')]" },
       ]
     }
     then = { effect = "deny" }
@@ -200,12 +219,13 @@ resource "azurerm_policy_definition" "deny_extra_law" {
 }
 
 resource "azurerm_subscription_policy_assignment" "deny_extra_law" {
+  count                = local.manage_policies ? 1 : 0
   name                 = "deny-extra-law-assignment"
-  display_name         = "Deny Log Analytics Workspaces except ${azurerm_log_analytics_workspace.main.name}"
-  policy_definition_id = azurerm_policy_definition.deny_extra_law.id
+  display_name         = "Deny Log Analytics Workspaces except approved names"
+  policy_definition_id = azurerm_policy_definition.deny_extra_law[0].id
   subscription_id      = local.scope
 
   parameters = jsonencode({
-    allowedWorkspaceName = { value = azurerm_log_analytics_workspace.main.name }
+    allowedWorkspaceNames = { value = local.allowed_law_names }
   })
 }
