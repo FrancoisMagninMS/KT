@@ -228,7 +228,7 @@ resource "azurerm_monitor_metric_alert" "pg_memory_high" {
   scopes              = [azurerm_postgresql_flexible_server.main.id]
   description         = "High memory pressure on PostgreSQL Flexible Server"
   severity            = 2
-  window_size         = "PT10M"
+  window_size         = "PT15M"
   frequency           = "PT1M"
 
   criteria {
@@ -278,7 +278,7 @@ resource "azurerm_monitor_metric_alert" "pg_replica_lag_warning" {
   scopes              = [azurerm_postgresql_flexible_server.main.id]
   description         = "Read replica lag exceeds 5 seconds (Warning)"
   severity            = 2
-  window_size         = "PT10M"
+  window_size         = "PT15M"
   frequency           = "PT1M"
 
   criteria {
@@ -301,7 +301,7 @@ resource "azurerm_monitor_metric_alert" "pg_replica_lag_critical" {
   scopes              = [azurerm_postgresql_flexible_server.main.id]
   description         = "Read replica lag exceeds 30 seconds (Critical)"
   severity            = 1
-  window_size         = "PT10M"
+  window_size         = "PT15M"
   frequency           = "PT1M"
 
   criteria {
@@ -324,7 +324,7 @@ resource "azurerm_monitor_metric_alert" "pg_physical_replication_lag" {
   scopes              = [azurerm_postgresql_flexible_server.main.id]
   description         = "Physical replication lag exceeds 50 MB on PostgreSQL"
   severity            = 2
-  window_size         = "PT10M"
+  window_size         = "PT15M"
   frequency           = "PT1M"
 
   criteria {
