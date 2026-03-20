@@ -67,11 +67,13 @@ Write-Host "`nConfiguring secrets..." -ForegroundColor Cyan
 
 $secrets = @(
     @{ Name = "AZURE_CLIENT_ID";       Prompt = "Service principal app/client ID" },
-    @{ Name = "AZURE_CLIENT_SECRET";   Prompt = "Service principal client secret" },
     @{ Name = "AZURE_SUBSCRIPTION_ID"; Prompt = "Azure subscription ID" },
     @{ Name = "AZURE_TENANT_ID";       Prompt = "Azure AD tenant ID" },
     @{ Name = "PG_ADMIN_PASSWORD";     Prompt = "PostgreSQL admin password (min 8 chars, mixed case/numbers/symbols)" }
 )
+
+# Note: AZURE_CLIENT_SECRET is NOT needed — the pipeline uses OIDC federation.
+# Run scripts/setup-oidc.ps1 to configure federated credentials on the App Registration.
 
 $missingSecrets = @()
 foreach ($s in $secrets) {

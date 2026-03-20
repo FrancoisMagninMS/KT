@@ -34,6 +34,13 @@ resource "azurerm_kubernetes_cluster" "aks" {
     secret_rotation_enabled = true
   }
 
+  azure_active_directory_role_based_access_control {
+    azure_rbac_enabled = true
+    tenant_id          = data.azurerm_client_config.current.tenant_id
+  }
+
+  azure_policy_enabled = true
+
   network_profile {
     network_plugin = "azure"
     network_policy = "azure"
@@ -47,4 +54,13 @@ resource "azurerm_kubernetes_cluster" "aks" {
     azurerm_role_assignment.aks_cp_mi_operator,
     azurerm_subnet_nat_gateway_association.aks,
   ]
+}
+
+# ────────────────────────── AKS RBAC role assignments ────────
+
+# Deployer SP — Cluster Admin for az aks command invoke
+resource "azurerm_role_assignment" "aks_rbac_cluster_admin" {
+  scope                = azurerm_kubernetes_cluster.aks.id
+  role_definition_name = "Azure Kubernetes Service RBAC Cluster Admin"
+  principal_id         = data.azurerm_client_config.current.object_id
 }
