@@ -1,8 +1,3 @@
-import {
-  to = azurerm_kubernetes_cluster.aks
-  id = "/subscriptions/${var.subscription_id}/resourceGroups/rg-${var.project}-${var.environment}/providers/Microsoft.ContainerService/managedClusters/aks-${var.project}-${var.environment}"
-}
-
 resource "azurerm_kubernetes_cluster" "aks" {
   name                = "aks-${var.project}-${var.environment}"
   location            = azurerm_resource_group.main.location
