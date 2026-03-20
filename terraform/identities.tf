@@ -4,12 +4,14 @@ resource "azurerm_user_assigned_identity" "aks_controlplane" {
   name                = "mi-aks-cp-${var.project}-${var.environment}"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
+  tags                = local.common_tags
 }
 
 resource "azurerm_user_assigned_identity" "aks_kubelet" {
   name                = "mi-aks-kubelet-${var.project}-${var.environment}"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
+  tags                = local.common_tags
 }
 
 # ────────────────────────── ACA identity ─────────────────────
@@ -18,6 +20,7 @@ resource "azurerm_user_assigned_identity" "aca" {
   name                = "mi-aca-${var.project}-${var.environment}"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
+  tags                = local.common_tags
 }
 
 # ────────────────────────── AKS control plane role assignments ─

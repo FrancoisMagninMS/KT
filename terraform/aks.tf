@@ -41,6 +41,8 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
   azure_policy_enabled = true
 
+  tags = local.common_tags
+
   network_profile {
     network_plugin = "azure"
     network_policy = "azure"

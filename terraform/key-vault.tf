@@ -7,6 +7,7 @@ resource "azurerm_key_vault" "main" {
   enable_rbac_authorization  = true
   purge_protection_enabled   = true
   soft_delete_retention_days = 7
+  tags                       = local.common_tags
 }
 
 # Deploying identity gets Key Vault Administrator

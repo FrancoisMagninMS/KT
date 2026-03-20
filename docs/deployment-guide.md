@@ -46,22 +46,25 @@ The pipeline uses **OIDC Workload Identity Federation** — no client secrets ne
 .\scripts\setup-oidc.ps1 `
   -AppId "<AZURE_CLIENT_ID>" `
   -GitHubOrg "<GITHUB_ORG>" `
-  -GitHubRepo "KT"
-```
-
-For multiple environments:
-
-```powershell
-.\scripts\setup-oidc.ps1 `
-  -AppId "<AZURE_CLIENT_ID>" `
-  -GitHubOrg "<GITHUB_ORG>" `
   -GitHubRepo "KT" `
-  -Environments @("DEV","UAT","PROD")
+  -Environments @("DEV","TEST","QA","PROD")
 ```
 
 > **Note**: Federated credentials don't expire — no rotation needed. If you previously used a client secret (`AZURE_CLIENT_SECRET`), you can delete it from the App Registration.
 
-### 3. Configure GitHub Secrets & Variables
+### 3. Create GitHub Environments
+
+Run the environment setup script to create all four GitHub Environments:
+
+```powershell
+.\scripts\setup-environments.ps1
+```
+
+This creates `DEV`, `TEST`, `QA`, and `PROD` environments. After running:
+- **QA** and **PROD** require manual configuration of required reviewers in GitHub Settings → Environments
+- **DEV** and **TEST** have no approval gates
+
+### 4. Configure GitHub Secrets & Variables
 
 Run the interactive setup script to configure the GitHub environment:
 
@@ -69,7 +72,7 @@ Run the interactive setup script to configure the GitHub environment:
 .\scripts\setup-github.ps1
 ```
 
-This sets the following on the `DEV` environment:
+The following must be set on **each** environment (DEV, TEST, QA, PROD):
 
 | Type | Name | Description |
 |------|------|-------------|
@@ -80,23 +83,38 @@ This sets the following on the `DEV` environment:
 | Variable | `ALERT_EMAIL` | Email for Azure Monitor alerts |
 
 > `AZURE_CLIENT_SECRET` is **not needed** — the pipeline authenticates via OIDC.
+> Secrets and variables must be set at the **environment** level, not the repository level.
 
 ---
 
 ## Step 1 — Deploy Infrastructure
 
-1. Push to GitHub (if not already done):
+The pipeline deploys infrastructure through four stages: **DEV → TEST → QA → PROD**.
 
-   ```bash
-   git push origin main
-   ```
+### Automatic deployment (push to main)
 
-2. Go to **GitHub → Actions → Deploy KT Infrastructure**.
+Pushing to `main` triggers the full pipeline:
+1. **DEV** — deploys automatically
+2. **TEST** — deploys automatically after successful DEV
+3. **QA** — pauses for human approval, then deploys
+4. **PROD** — pauses for human approval, then deploys
 
-3. Click **Run workflow**, select branch, action = `apply`.
+```bash
+git push origin main
+```
+
+### Manual deployment (workflow_dispatch)
+
+For plan/destroy operations on a specific environment:
+
+1. Go to **GitHub → Actions → Deploy KT Infrastructure**
+2. Click **Run workflow**
+3. Select the target **environment** (dev, test, qa, prod) and **action** (plan, apply, destroy)
+
+> **Note**: The `apply` action via workflow_dispatch also triggers the full multi-stage pipeline starting from the selected environment.
 
 4. Wait for the workflow to complete. Note the outputs:
-   - `acr_login_server` — your ACR login server (e.g. `acrktprodxxxx.azurecr.io`)
+   - `acr_login_server` — your ACR login server (e.g. `acrktdevxxxx.azurecr.io`)
    - `aks_cluster_name` — AKS cluster name
    - `resource_group_name` — resource group name
 
@@ -398,7 +416,7 @@ az containerapp env show \
 
 ## Monitoring & Alerts
 
-All resources send diagnostics to a **single Log Analytics Workspace** (`law-kt-prod`):
+All resources send diagnostics to a **single Log Analytics Workspace** per environment (e.g., `law-kt-dev`, `law-kt-prod`):
 
 | Resource | Diagnostics |
 |----------|-------------|
@@ -437,17 +455,37 @@ Alerts are sent to: **frmagnin@microsoft.com**
 
 The pipeline uses **OIDC Workload Identity Federation** — GitHub Actions exchanges a short-lived token with Azure AD, so no client secrets are stored or rotated. This is configured via `scripts/setup-oidc.ps1`.
 
-### Deploy Workflow (`deploy.yml` — `workflow_dispatch`)
+### Environment Promotion
+
+The pipeline implements a four-stage promotion model:
+
+| Stage | Environment | Trigger | Approval |
+|-------|-------------|---------|----------|
+| 1 | **DEV** | Push to `main` | Automatic |
+| 2 | **TEST** | Successful DEV deployment | Automatic |
+| 3 | **QA** | Successful TEST deployment | Human approval required |
+| 4 | **PROD** | Successful QA deployment | Human approval required |
+
+Each environment uses an isolated Terraform state file (`kt-infrastructure-{env}.tfstate`) and creates resources with the environment in the name (e.g., `rg-kt-dev`, `aks-kt-prod`).
+
+### Deploy Workflow (`deploy.yml` — `push` to `main` + `workflow_dispatch`)
+
+Each environment stage runs the following jobs:
 
 | Job | Purpose |
-|-----|---------|
-| **validate-config** | Checks that all required secrets and variables are set |
+|-----|---------||
+| **terraform-{env}** | `plan` → `apply` with environment-specific state |
+| **build-and-push-{env}** | Builds container images via ACR Tasks |
+| **deploy-aks-{env}** | Deploys to AKS via `az aks command invoke` |
+| **deploy-aca-{env}** | Updates ACA container app image |
+
+Shared jobs that run once:
+
+| Job | Purpose |
+|-----|---------||
 | **security-scan** | Runs terraform fmt, tfsec, TFLint, Checkov, TruffleHog, and Trivy |
 | **bootstrap** | Creates the Terraform state backend (storage account with Azure AD auth) |
-| **terraform** | `plan` / `apply` / `destroy` — plan artifact uploaded for audit |
-| **build-and-push** | Builds container images via ACR Tasks (on `apply`) |
-| **deploy-aks** | Deploys to AKS via `az aks command invoke` (on `apply`) |
-| **deploy-aca** | Updates ACA container app image (on `apply`) |
+| **manual-terraform** | Plan/destroy operations on individual environments via `workflow_dispatch` |
 
 ### PR Checks (`pr-checks.yml` — on `pull_request` to `main`)
 
@@ -484,14 +522,17 @@ Dependabot (`.github/dependabot.yml`) automatically opens PRs for outdated:
 
 ## Cleanup
 
-To tear down all resources:
+To tear down resources for a specific environment:
 
 1. Go to **GitHub → Actions → Deploy KT Infrastructure**
-2. Click **Run workflow**, select the branch, action = `destroy`
+2. Click **Run workflow**, select the target **environment** and action = `destroy`
+
+> **Note**: Destroying QA or PROD requires human approval via GitHub Environment protection rules.
 
 Or manually:
 
 ```bash
 cd terraform
-terraform destroy
+terraform init -backend-config="key=kt-infrastructure-<env>.tfstate" ...
+TF_VAR_environment=<env> terraform destroy
 ```

@@ -69,20 +69,20 @@ Azure infrastructure-as-code project deploying AKS, ACA, PostgreSQL Flexible Ser
 ## GitHub Actions Workflow
 
 - **Authentication**: OIDC Workload Identity Federation from GitHub → Entra ID (no client secrets). Run `scripts/setup-oidc.ps1` to configure federated credentials
-- Environment: `DEV` (secrets/variables are scoped to this environment)
-- Secrets (`AZURE_CLIENT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `PG_ADMIN_PASSWORD`) must be set as environment-level secrets, not repository-level. `AZURE_CLIENT_SECRET` is **not needed** with OIDC
-- Variables (`ALERT_EMAIL`) are set at the environment level
+- Environment: `DEV`, `TEST`, `QA`, `PROD` (secrets/variables are scoped to each environment)
+- Secrets (`AZURE_CLIENT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `PG_ADMIN_PASSWORD`) must be set as environment-level secrets on each environment, not repository-level. `AZURE_CLIENT_SECRET` is **not needed** with OIDC
+- Variables (`ALERT_EMAIL`) are set at the environment level on each environment
 - `ARM_*` env vars must be defined at the **job** level (not workflow level) to access environment-scoped secrets. Use `ARM_USE_OIDC: 'true'` for Terraform OIDC authentication
 
-### Pipeline Jobs (`deploy.yml` — `workflow_dispatch`)
+### Pipeline Jobs (`deploy.yml` — `push` to `main` + `workflow_dispatch`)
 
-1. **validate-config** — Checks required secrets/variables
-2. **security-scan** — terraform fmt, tfsec, TFLint, Checkov, TruffleHog, Trivy (SARIF uploaded to GitHub Security tab)
-3. **bootstrap** — Creates Terraform state backend storage
-4. **terraform** — `plan` / `apply` / `destroy` (plan artifact uploaded for audit)
-5. **build-and-push** — Builds container images via ACR Tasks (on apply)
-6. **deploy-aks** — Deploys to private AKS via `az aks command invoke` (on apply)
-7. **deploy-aca** — Updates ACA container app image (on apply)
+1. **security-scan** — terraform fmt, tfsec, TFLint, Checkov, TruffleHog, Trivy (SARIF uploaded to GitHub Security tab)
+2. **bootstrap** — Creates Terraform state backend storage
+3. **DEV stage** — `terraform-dev` → `build-and-push-dev` → `deploy-aks-dev` + `deploy-aca-dev` (auto on push)
+4. **TEST stage** — `terraform-test` → `build-and-push-test` → `deploy-aks-test` + `deploy-aca-test` (auto after DEV)
+5. **QA stage** — `terraform-qa` → `build-and-push-qa` → `deploy-aks-qa` + `deploy-aca-qa` (requires human approval)
+6. **PROD stage** — `terraform-prod` → `build-and-push-prod` → `deploy-aks-prod` + `deploy-aca-prod` (requires human approval)
+7. **manual-terraform** — For `plan`/`destroy` operations on individual environments via `workflow_dispatch`
 
 ### PR Checks (`pr-checks.yml` — on `pull_request` to `main`)
 
@@ -106,12 +106,19 @@ Azure infrastructure-as-code project deploying AKS, ACA, PostgreSQL Flexible Ser
 
 ## Environment Promotion & Human Gates
 
-- Each environment (`DEV`, `UAT`, `PROD`) is a GitHub Environment with its own secrets, variables, and protection rules
-- **Required reviewers**: Configure required reviewers on each GitHub Environment (Settings → Environments → Protection rules). Apply/destroy actions on any environment must require at least one human approval
+- Four environments: `DEV`, `TEST`, `QA`, `PROD` — each is a GitHub Environment with its own secrets, variables, and protection rules
+- **DEV**: Auto-deploys on every push to `main` — no approval required
+- **TEST**: Auto-deploys after successful DEV deployment — no approval required
+- **QA**: Requires human approval before deployment (configure required reviewers in GitHub Environment settings)
+- **PROD**: Requires human approval before deployment (configure required reviewers in GitHub Environment settings); only runs after successful QA deployment
+- **Required reviewers**: Configure required reviewers on QA and PROD environments (Settings → Environments → Protection rules)
 - **Branch protection**: The `main` branch requires a pull request with at least one approval before merge. Direct pushes to `main` should be disabled once the team is onboarded
-- **Workflow pattern**: The pipeline uses `workflow_dispatch` with an `action` input (`plan`/`apply`/`destroy`). `plan` can run freely; `apply` and `destroy` must be gated by environment protection rules
-- **Adding a new environment**: Duplicate the environment in GitHub (Settings → Environments), create environment-scoped secrets/variables, add a new Terraform workspace or variable set, and add the environment to the workflow's `environment:` field. The workflow should accept an environment input to target different stages
-- **Destroy protection**: The `destroy` action should require a separate, stricter approval gate. Consider requiring two reviewers for production destroy operations
+- **Workflow pattern**: The pipeline triggers on `push` to `main` (full DEV→TEST→QA→PROD chain) and `workflow_dispatch` for manual plan/destroy on individual environments
+- **Adding a new environment**: Create a GitHub Environment, add environment-scoped secrets/variables, set up OIDC federated credentials, and add the environment stage to the workflow
+- **Destroy protection**: Use `workflow_dispatch` with `destroy` action targeting a specific environment. QA and PROD environments require reviewer approval
+- **Terraform state isolation**: Each environment uses a separate state file (`kt-infrastructure-dev.tfstate`, `kt-infrastructure-test.tfstate`, etc.) in the shared backend storage account
+- **Resource naming**: All resources include the environment in their name (e.g., `rg-kt-dev`, `aks-kt-prod`) and carry `environment`, `project`, and `managed_by` tags
+- **Environment setup**: Run `scripts/setup-environments.ps1` to create all four GitHub Environments
 
 ## Build and Test
 

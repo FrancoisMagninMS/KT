@@ -103,7 +103,7 @@ Covered resource types include: VMs, NSGs, Load Balancers, AKS, PostgreSQL, Key 
 
 ### 1.9 Monitoring & Alerting
 
-All resources send diagnostics to a single **Log Analytics Workspace** (`law-kt-prod`):
+All resources send diagnostics to a single **Log Analytics Workspace** per environment (e.g., `law-kt-dev`, `law-kt-prod`):
 
 | Resource | How diagnostics are configured |
 |----------|-------------------------------|
@@ -172,8 +172,7 @@ Before any infrastructure changes are applied, the deploy pipeline runs:
 
 | Control | Implementation |
 |---------|---------------|
-| Remote backend | Azure Storage Account (`stkttfstate`) |
-| Azure AD auth | `use_azuread_auth = true` — no storage account keys |
+| Remote backend | Azure Storage Account (`stkttfstate`) || State isolation | Separate state file per environment (`kt-infrastructure-dev.tfstate`, etc.) || Azure AD auth | `use_azuread_auth = true` — no storage account keys |
 | OIDC backend auth | `use_oidc = true` — backend authenticates via federated credential |
 | Encryption | Azure Storage default encryption at rest |
 | Public access blocked | `allow-blob-public-access false` on storage account |
@@ -196,11 +195,15 @@ Before any infrastructure changes are applied, the deploy pipeline runs:
 
 | Aspect | Implementation |
 |--------|---------------|
-| GitHub Environments | Each stage (DEV, UAT, PROD) is a GitHub Environment with its own secrets, variables, and protection rules |
-| Required reviewers | Configured on GitHub Environments — apply/destroy actions require human approval |
+| GitHub Environments | Four stages: DEV, TEST, QA, PROD — each is a GitHub Environment with its own secrets, variables, and protection rules |
+| Automatic promotion | DEV deploys on push to `main`; TEST auto-deploys after successful DEV |
+| Human gates | QA and PROD require human approval via GitHub Environment required reviewers |
 | Branch protection | `main` requires PR with at least one approval. Direct pushes disabled. |
-| Workflow pattern | `workflow_dispatch` with `action` input (plan/apply/destroy). Plan runs freely; apply/destroy gated. |
-| Destroy protection | Stricter approval gate recommended. Consider dual reviewers for production. |
+| Workflow triggers | `push` to `main` (full DEV→TEST→QA→PROD chain) and `workflow_dispatch` for manual plan/destroy on individual environments |
+| State isolation | Each environment uses a separate Terraform state file (`kt-infrastructure-{env}.tfstate`) in the shared backend storage account |
+| Resource isolation | All resources include the environment in their name (e.g., `rg-kt-dev`, `aks-kt-prod`) and carry `environment`, `project`, and `managed_by` tags |
+| Destroy protection | Use `workflow_dispatch` with `destroy` action targeting a specific environment. QA and PROD require reviewer approval. |
+| Environment setup | Run `scripts/setup-environments.ps1` to create all four GitHub Environments |
 
 ---
 
@@ -224,21 +227,30 @@ Before any infrastructure changes are applied, the deploy pipeline runs:
             │ Merge to main
             ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  DEPLOY PIPELINE (deploy.yml — workflow_dispatch)                      │
+│  DEPLOY PIPELINE (deploy.yml — push to main + workflow_dispatch)       │
 │                                                                        │
-│  1. Validate Config ─────────────────────────────────────────────────  │
-│  2. Security Scan ──── fmt → tfsec → TFLint → Checkov → TruffleHog   │
+│  1. Security Scan ──── fmt → tfsec → TFLint → Checkov → TruffleHog   │
 │                        └── Trivy (containers) ──────────────────────   │
-│  3. Bootstrap (TF state backend) ───────────────────────────────────  │
-│  4. Terraform plan → [artifact] → apply ────────────────────────────  │
-│  5. Build & Push images (ACR Tasks) ────────────────────────────────  │
-│  6. Deploy AKS (az aks command invoke) ─────────────────────────────  │
-│  7. Deploy ACA (az containerapp update) ────────────────────────────  │
+│  2. Bootstrap (TF state backend) ───────────────────────────────────  │
+│                                                                        │
+│  3. DEV Stage (auto) ─── terraform → build → deploy-aks + deploy-aca  │
+│          │                                                              │
+│          ▼                                                              │
+│  4. TEST Stage (auto) ── terraform → build → deploy-aks + deploy-aca  │
+│          │                                                              │
+│          ▼                                                              │
+│  5. QA Stage ══ APPROVAL GATE ══ terraform → build → deploy-aks/aca   │
+│          │                                                              │
+│          ▼                                                              │
+│  6. PROD Stage ══ APPROVAL GATE ══ terraform → build → deploy-aks/aca │
+│                                                                        │
+│  7. Manual TF ── plan/destroy on individual environments               │
 └───────────┬─────────────────────────────────────────────────────────────┘
             │ OIDC (no secrets)
             ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  AZURE (koreacentral)                                                  │
+│  AZURE (koreacentral) — per-environment resource groups                │
+│  rg-kt-dev | rg-kt-test | rg-kt-qa | rg-kt-prod                      │
 │                                                                        │
 │  ┌─ VNet 10.0.0.0/16 ──────────────────────────────────────────────┐  │
 │  │                                                                  │  │

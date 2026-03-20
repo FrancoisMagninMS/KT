@@ -5,6 +5,7 @@ resource "azurerm_virtual_network" "main" {
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   address_space       = var.vnet_address_space
+  tags                = local.common_tags
 }
 
 # ────────────────────────── subnets ──────────────────────────
@@ -57,6 +58,7 @@ resource "azurerm_public_ip" "nat" {
   resource_group_name = azurerm_resource_group.main.name
   allocation_method   = "Static"
   sku                 = "Standard"
+  tags                = local.common_tags
 }
 
 resource "azurerm_nat_gateway" "main" {
@@ -64,6 +66,7 @@ resource "azurerm_nat_gateway" "main" {
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   sku_name            = "Standard"
+  tags                = local.common_tags
 }
 
 resource "azurerm_nat_gateway_public_ip_association" "main" {
@@ -82,6 +85,7 @@ resource "azurerm_network_security_group" "aks" {
   name                = "nsg-aks-${var.project}-${var.environment}"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
+  tags                = local.common_tags
 }
 
 resource "azurerm_subnet_network_security_group_association" "aks" {

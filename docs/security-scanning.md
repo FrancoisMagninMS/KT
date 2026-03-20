@@ -6,7 +6,7 @@ This document describes every security scanning step in the KT CI/CD pipelines a
 
 ## Deploy Pipeline (`deploy.yml` — Security Scan Job)
 
-The security scan job runs on every workflow dispatch **before** any infrastructure changes are applied. All steps must pass (or soft-fail where configured) before Terraform plan/apply can proceed.
+The security scan job runs on every push to `main` and on `workflow_dispatch` **before** any infrastructure changes are applied. All steps must pass (or soft-fail where configured) before the multi-stage deployment (DEV → TEST → QA → PROD) can proceed.
 
 ### 1. Terraform Format Check
 
@@ -224,3 +224,5 @@ Same Trivy scan as the deploy pipeline — builds Dockerfiles and scans for HIGH
 | CodeQL | ❌ | ✅ | — | ✅ |
 | Dependency Review | ❌ | ✅ | — | ✅ |
 | Dependabot | scheduled | triggers PR | — | via PR checks |
+
+> **Note**: In the deploy pipeline, security scanning runs once at the start. If it passes, the pipeline proceeds through all four environment stages (DEV → TEST → QA → PROD) with human approval gates at QA and PROD.
