@@ -13,10 +13,73 @@ Both services are locked down — no internet inbound, outbound controlled via N
 
 ## Prerequisites
 
-- Azure CLI (`az`) installed and authenticated
-- Docker (or Podman) for building container images
+- **Azure CLI** (`az`) installed and authenticated — [Install Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
+- **GitHub CLI** (`gh`) installed and authenticated — [Install GitHub CLI](https://cli.github.com)
 - Access to the Azure subscription (`MCAPS-Hybrid-ISD-Incubation`)
-- The GitHub Actions workflow has successfully run `apply`
+- An Azure AD **App Registration** (service principal) with the following roles:
+  - `Contributor` on the subscription
+  - `User Access Administrator` on the subscription
+  - `Storage Blob Data Contributor` on the Terraform state storage account
+
+---
+
+## One-Time Setup
+
+These steps only need to be done once when setting up a new environment.
+
+### 1. Create the Service Principal
+
+If you don't already have one:
+
+```powershell
+az ad sp create-for-rbac --name "sp-kt-deploy" --role Contributor `
+  --scopes "/subscriptions/<SUBSCRIPTION_ID>"
+```
+
+Note the `appId` — this is your `AZURE_CLIENT_ID`.
+
+### 2. Configure OIDC Federated Credentials
+
+The pipeline uses **OIDC Workload Identity Federation** — no client secrets needed. Run the setup script to create federated credentials on the App Registration:
+
+```powershell
+.\scripts\setup-oidc.ps1 `
+  -AppId "<AZURE_CLIENT_ID>" `
+  -GitHubOrg "<GITHUB_ORG>" `
+  -GitHubRepo "KT"
+```
+
+For multiple environments:
+
+```powershell
+.\scripts\setup-oidc.ps1 `
+  -AppId "<AZURE_CLIENT_ID>" `
+  -GitHubOrg "<GITHUB_ORG>" `
+  -GitHubRepo "KT" `
+  -Environments @("DEV","UAT","PROD")
+```
+
+> **Note**: Federated credentials don't expire — no rotation needed. If you previously used a client secret (`AZURE_CLIENT_SECRET`), you can delete it from the App Registration.
+
+### 3. Configure GitHub Secrets & Variables
+
+Run the interactive setup script to configure the GitHub environment:
+
+```powershell
+.\scripts\setup-github.ps1
+```
+
+This sets the following on the `DEV` environment:
+
+| Type | Name | Description |
+|------|------|-------------|
+| Secret | `AZURE_CLIENT_ID` | Service principal app/client ID |
+| Secret | `AZURE_SUBSCRIPTION_ID` | Azure subscription ID |
+| Secret | `AZURE_TENANT_ID` | Azure AD tenant ID |
+| Secret | `PG_ADMIN_PASSWORD` | PostgreSQL admin password |
+| Variable | `ALERT_EMAIL` | Email for Azure Monitor alerts |
+
+> `AZURE_CLIENT_SECRET` is **not needed** — the pipeline authenticates via OIDC.
 
 ---
 
@@ -370,24 +433,38 @@ Alerts are sent to: **frmagnin@microsoft.com**
 
 ## CI/CD Pipeline
 
-The GitHub Actions workflow (`deploy.yml`) runs the following jobs:
+### Authentication
+
+The pipeline uses **OIDC Workload Identity Federation** — GitHub Actions exchanges a short-lived token with Azure AD, so no client secrets are stored or rotated. This is configured via `scripts/setup-oidc.ps1`.
+
+### Deploy Workflow (`deploy.yml` — `workflow_dispatch`)
 
 | Job | Purpose |
 |-----|---------|
 | **validate-config** | Checks that all required secrets and variables are set |
-| **security-scan** | Runs tfsec, TFLint, Checkov, TruffleHog, and Trivy |
-| **bootstrap** | Creates the Terraform state backend (storage account) |
-| **terraform** | `plan` / `apply` / `destroy` |
+| **security-scan** | Runs terraform fmt, tfsec, TFLint, Checkov, TruffleHog, and Trivy |
+| **bootstrap** | Creates the Terraform state backend (storage account with Azure AD auth) |
+| **terraform** | `plan` / `apply` / `destroy` — plan artifact uploaded for audit |
 | **build-and-push** | Builds container images via ACR Tasks (on `apply`) |
 | **deploy-aks** | Deploys to AKS via `az aks command invoke` (on `apply`) |
 | **deploy-aca** | Updates ACA container app image (on `apply`) |
 
+### PR Checks (`pr-checks.yml` — on `pull_request` to `main`)
+
+| Job | Purpose |
+|-----|---------|
+| **CodeQL** | SAST analysis for application code (Python) |
+| **Dependency Review** | SCA for vulnerable dependencies in PRs |
+| **Terraform Validation** | fmt, init, validate, TFLint, tfsec with SARIF upload |
+| **Container Scan** | Trivy vulnerability scan of Dockerfiles (HIGH/CRITICAL) |
+
 ### Security Scanning
 
-The pipeline includes five security scanners that run before any infrastructure changes:
+The pipeline includes six security scanners that run before any infrastructure changes:
 
 | Scanner | What it checks |
 |---------|---------------|
+| **terraform fmt** | Code formatting consistency |
 | **tfsec** | Terraform-specific security misconfigurations (SARIF → GitHub Security tab) |
 | **TFLint** | Terraform linting and best practices |
 | **Checkov** | Broad IaC policy checks (CIS, NIST) with SARIF upload |
@@ -395,6 +472,13 @@ The pipeline includes five security scanners that run before any infrastructure 
 | **Trivy** | Container image vulnerability scanning (HIGH/CRITICAL) |
 
 Scanning results are uploaded as SARIF to the GitHub **Security → Code scanning** tab for tfsec and Checkov.
+
+### Dependency Management
+
+Dependabot (`.github/dependabot.yml`) automatically opens PRs for outdated:
+- GitHub Actions versions
+- Python packages (pip)
+- Terraform providers
 
 ---
 
