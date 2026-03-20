@@ -529,6 +529,65 @@ To tear down resources for a specific environment:
 
 > **Note**: Destroying QA or PROD requires human approval via GitHub Environment protection rules.
 
+---
+
+## Troubleshooting
+
+### OIDC "Failed to fetch federated token" error
+
+**Error**: `Failed to fetch federated token from GitHub. Please make sure to give write permissions to id-token in the workflow.`
+
+**Cause**: The Azure AD App Registration is missing a federated credential for the GitHub Environment being used. Each environment (DEV, TEST, QA, PROD) requires its own federated credential.
+
+**Fix**: Run the OIDC setup script for all environments:
+
+```powershell
+.\scripts\setup-oidc.ps1 `
+  -AppId "<AZURE_CLIENT_ID>" `
+  -GitHubOrg "FrancoisMagninMS" `
+  -GitHubRepo "KT" `
+  -Environments @("DEV","TEST","QA","PROD")
+```
+
+Verify with:
+
+```bash
+az ad app federated-credential list --id <AZURE_CLIENT_ID> -o table
+```
+
+### Terraform state lock errors
+
+**Error**: `Error acquiring the state lock` or `state blob is already locked`
+
+**Cause**: A previous pipeline run was cancelled or timed out while holding the state lock.
+
+**Fix**: The pipeline uses `-lock-timeout=5m` on all terraform commands, so transient lock contention resolves automatically. If the lock persists beyond 5 minutes:
+
+```bash
+# Find the lease on the state blob
+az storage blob show \
+  --account-name stkttfstate \
+  --container-name tfstate \
+  --name kt-infrastructure-<env>.tfstate \
+  --auth-mode login \
+  --query "properties.lease"
+
+# Break the lease if needed
+az storage blob lease break \
+  --account-name stkttfstate \
+  --container-name tfstate \
+  --blob-name kt-infrastructure-<env>.tfstate \
+  --auth-mode login
+```
+
+### Artifact upload 409 Conflict
+
+**Error**: `an artifact with this name already exists on the workflow run`
+
+**Cause**: Re-running a workflow produces the same artifact name (uses `github.run_id` which doesn't change on re-runs).
+
+**Fix**: Already resolved — all `upload-artifact` steps use `overwrite: true`.
+
 Or manually:
 
 ```bash
