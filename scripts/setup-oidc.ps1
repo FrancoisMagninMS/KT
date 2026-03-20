@@ -83,10 +83,17 @@ foreach ($env in $Environments) {
         subject     = $subject
         audiences   = @("api://AzureADTokenExchange")
         description = "GitHub Actions OIDC for $GitHubOrg/$GitHubRepo environment $env"
-    } | ConvertTo-Json -Compress
+    } | ConvertTo-Json
 
-    az ad app federated-credential create --id $AppObjectId --parameters $body
-    if ($LASTEXITCODE -eq 0) {
+    # Write to temp file to avoid PowerShell JSON quoting issues with az cli
+    $tempFile = [System.IO.Path]::GetTempFileName()
+    $body | Set-Content -Path $tempFile -Encoding UTF8
+
+    az ad app federated-credential create --id $AppObjectId --parameters "@$tempFile"
+    $createResult = $LASTEXITCODE
+    Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue
+
+    if ($createResult -eq 0) {
         Write-Host "  Created successfully." -ForegroundColor Green
     }
     else {
