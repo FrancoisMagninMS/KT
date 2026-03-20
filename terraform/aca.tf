@@ -4,7 +4,7 @@ resource "azapi_resource" "aca_environment" {
   location  = azurerm_resource_group.main.location
   parent_id = azurerm_resource_group.main.id
 
-  body = jsonencode({
+  body = {
     properties = {
       vnetConfiguration = {
         infrastructureSubnetId = azurerm_subnet.aca.id
@@ -26,7 +26,7 @@ resource "azapi_resource" "aca_environment" {
       zoneRedundant       = false
       publicNetworkAccess = "Disabled"
     }
-  })
+  }
 }
 
 resource "azurerm_container_app" "hello_korea" {
