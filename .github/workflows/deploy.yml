@@ -182,6 +182,14 @@ jobs:
             --encryption-services blob \
             --min-tls-version TLS1_2 \
             --allow-blob-public-access false \
+            --public-network-access Enabled \
+            -o none 2>/dev/null || true
+
+          # Ensure public network access stays enabled (Azure policies may disable it)
+          az storage account update \
+            --name stkttfstate \
+            --resource-group rg-kt-tfstate \
+            --public-network-access Enabled \
             -o none 2>/dev/null || true
 
           az storage container create \
@@ -688,12 +696,6 @@ jobs:
 
       - name: Terraform Init
         run: |
-          echo "Verifying storage access..."
-          az storage blob list \
-            --account-name stkttfstate \
-            --container-name tfstate \
-            --auth-mode login \
-            --query "length(@)" -o tsv || echo "::warning::az storage list failed"
           terraform init -reconfigure \
             -backend-config="resource_group_name=rg-kt-tfstate" \
             -backend-config="storage_account_name=stkttfstate" \

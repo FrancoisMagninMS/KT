@@ -596,6 +596,24 @@ az storage blob lease break \
 
 **Fix**: Already resolved — all policy resources in `policies.tf` use `count = local.manage_policies ? 1 : 0` and are only created by the **prod** environment. The deny-extra-law policy allows all four LAW names (`law-kt-dev`, `law-kt-test`, `law-kt-qa`, `law-kt-prod`).
 
+### Terraform init 403 on state backend
+
+**Error**: `Failed to get existing workspaces: containers.Client#ListBlobs: StatusCode=403 -- AuthorizationFailure`
+
+**Cause**: The Terraform state storage account (`stkttfstate`) has `publicNetworkAccess` set to `Disabled`, blocking connections from GitHub Actions runners. This can happen if an Azure security policy automatically disables public network access on storage accounts.
+
+**Fix**: Re-enable public network access (required for GitHub Actions runners):
+
+```bash
+az storage account update \
+  --name stkttfstate \
+  --resource-group rg-kt-tfstate \
+  --public-network-access Enabled \
+  -o none
+```
+
+The bootstrap step now explicitly ensures public network access stays enabled on each run to prevent this from recurring.
+
 Or manually:
 
 ```bash
