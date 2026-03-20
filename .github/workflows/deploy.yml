@@ -86,7 +86,7 @@ jobs:
 
       # ── Terraform static analysis with tfsec ──
       - name: tfsec — Terraform Security Scanner
-        uses: aquasecurity/tfsec-action@v1
+        uses: aquasecurity/tfsec-action@v1.0.3
         with:
           working_directory: terraform
           soft_fail: false
@@ -133,7 +133,7 @@ jobs:
 
       # ── Detect secrets in code ──
       - name: Detect Secrets
-        uses: trufflesecurity/trufflehog@v3
+        uses: trufflesecurity/trufflehog@v3.88.12
         with:
           extra_args: --only-verified --results=verified
 
