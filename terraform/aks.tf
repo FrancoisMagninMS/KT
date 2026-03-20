@@ -9,11 +9,10 @@ resource "azurerm_kubernetes_cluster" "aks" {
   private_cluster_public_fqdn_enabled = false
 
   default_node_pool {
-    name                   = "system"
-    node_count             = var.aks_node_count
-    vm_size                = var.aks_vm_size
-    vnet_subnet_id         = azurerm_subnet.aks.id
-    enable_host_encryption = true
+    name           = "system"
+    node_count     = var.aks_node_count
+    vm_size        = var.aks_vm_size
+    vnet_subnet_id = azurerm_subnet.aks.id
   }
 
   identity {

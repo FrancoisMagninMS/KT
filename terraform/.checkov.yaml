@@ -3,6 +3,7 @@
 # ACR is deployed as Standard SKU — upgrade to Premium to enable these.
 skip-check:
   - CKV_AZURE_117  # AKS disk encryption set — requires customer-managed key (CMK) infrastructure
+  - CKV_AZURE_227  # AKS host encryption — enable_host_encryption not supported in azurerm v3 default_node_pool
   - CKV_AZURE_233  # ACR zone redundant — requires Premium SKU
   - CKV_AZURE_167  # ACR retention policy for untagged manifests — requires Premium SKU
   - CKV_AZURE_164  # ACR signed/trusted images (content trust) — requires Premium SKU

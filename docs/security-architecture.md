@@ -48,7 +48,7 @@ All infrastructure resources are deployed into a private VNet (`10.0.0.0/16`) wi
 | NAT Gateway outbound | `outbound_type = userAssignedNATGateway` | Controlled egress via single static IP |
 | Azure AD RBAC | `azure_rbac_enabled = true` | Kubernetes RBAC tied to Entra ID roles (Cluster Admin, Admin, Writer, Reader) |
 | Azure Policy add-on | `azure_policy_enabled = true` | In-cluster policy enforcement via Gatekeeper/OPA |
-| Host encryption | `enable_host_encryption = true` | Encrypts temp disks, caches, and compute↔storage data flows |
+| Host encryption | Not available in azurerm v3 inline node pool | Requires azurerm v4+ or separate node pool resource |
 | User-assigned identity | Control plane + kubelet | No system-assigned or SPN credentials on nodes |
 | Key Vault CSI | `secret_rotation_enabled = true` | Secrets injected from Key Vault, rotated automatically |
 | OMS Agent | `log_analytics_workspace_id` | Container Insights for monitoring and diagnostics |
