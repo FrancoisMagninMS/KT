@@ -32,8 +32,8 @@ output "aca_environment_name" {
   value = azurerm_container_app_environment.aca.name
 }
 
-output "aca_placeholder_fqdn" {
-  value = azurerm_container_app.placeholder.ingress[0].fqdn
+output "aca_hello_korea_fqdn" {
+  value = azurerm_container_app.hello_korea.ingress[0].fqdn
 }
 
 # ────────────────────────── ACR ──────────────────────────────

@@ -5,6 +5,9 @@ resource "azurerm_kubernetes_cluster" "aks" {
   dns_prefix          = "aks-${var.project}-${var.environment}"
   kubernetes_version  = var.kubernetes_version
 
+  private_cluster_enabled             = true
+  private_cluster_public_fqdn_enabled = false
+
   default_node_pool {
     name           = "system"
     node_count     = var.aks_node_count
@@ -33,6 +36,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
   network_profile {
     network_plugin = "azure"
+    network_policy = "azure"
     service_cidr   = "10.1.0.0/16"
     dns_service_ip = "10.1.0.10"
   }

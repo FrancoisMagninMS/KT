@@ -127,5 +127,6 @@ variable "acr_sku" {
 
 variable "alert_email" {
   type        = string
+  default     = "frmagnin@microsoft.com"
   description = "Email address for alert notifications"
 }

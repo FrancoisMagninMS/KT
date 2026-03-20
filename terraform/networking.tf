@@ -58,3 +58,186 @@ resource "azurerm_subnet_network_security_group_association" "aks" {
   subnet_id                 = azurerm_subnet.aks.id
   network_security_group_id = azurerm_network_security_group.aks.id
 }
+
+resource "azurerm_network_security_group" "aca" {
+  name                = "nsg-aca-${var.project}-${var.environment}"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+}
+
+resource "azurerm_subnet_network_security_group_association" "aca" {
+  subnet_id                 = azurerm_subnet.aca.id
+  network_security_group_id = azurerm_network_security_group.aca.id
+}
+
+# ────────────────────────── NSG Rules — AKS ──────────────────
+
+resource "azurerm_network_security_rule" "aks_allow_vnet_inbound" {
+  name                        = "AllowVNetInbound"
+  priority                    = 100
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
+  source_address_prefix       = "VirtualNetwork"
+  destination_address_prefix  = "VirtualNetwork"
+  resource_group_name         = azurerm_resource_group.main.name
+  network_security_group_name = azurerm_network_security_group.aks.name
+}
+
+resource "azurerm_network_security_rule" "aks_allow_lb_inbound" {
+  name                        = "AllowAzureLoadBalancerInbound"
+  priority                    = 110
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
+  source_address_prefix       = "AzureLoadBalancer"
+  destination_address_prefix  = "*"
+  resource_group_name         = azurerm_resource_group.main.name
+  network_security_group_name = azurerm_network_security_group.aks.name
+}
+
+resource "azurerm_network_security_rule" "aks_deny_internet_inbound" {
+  name                        = "DenyInternetInbound"
+  priority                    = 4000
+  direction                   = "Inbound"
+  access                      = "Deny"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
+  source_address_prefix       = "Internet"
+  destination_address_prefix  = "*"
+  resource_group_name         = azurerm_resource_group.main.name
+  network_security_group_name = azurerm_network_security_group.aks.name
+}
+
+resource "azurerm_network_security_rule" "aks_allow_vnet_outbound" {
+  name                        = "AllowVNetOutbound"
+  priority                    = 100
+  direction                   = "Outbound"
+  access                      = "Allow"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
+  source_address_prefix       = "VirtualNetwork"
+  destination_address_prefix  = "VirtualNetwork"
+  resource_group_name         = azurerm_resource_group.main.name
+  network_security_group_name = azurerm_network_security_group.aks.name
+}
+
+resource "azurerm_network_security_rule" "aks_allow_azurecloud_outbound" {
+  name                        = "AllowAzureCloudOutbound"
+  priority                    = 200
+  direction                   = "Outbound"
+  access                      = "Allow"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
+  source_address_prefix       = "*"
+  destination_address_prefix  = "AzureCloud"
+  resource_group_name         = azurerm_resource_group.main.name
+  network_security_group_name = azurerm_network_security_group.aks.name
+}
+
+resource "azurerm_network_security_rule" "aks_deny_internet_outbound" {
+  name                        = "DenyInternetOutbound"
+  priority                    = 4000
+  direction                   = "Outbound"
+  access                      = "Deny"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
+  source_address_prefix       = "*"
+  destination_address_prefix  = "Internet"
+  resource_group_name         = azurerm_resource_group.main.name
+  network_security_group_name = azurerm_network_security_group.aks.name
+}
+
+# ────────────────────────── NSG Rules — ACA ──────────────────
+
+resource "azurerm_network_security_rule" "aca_allow_vnet_inbound" {
+  name                        = "AllowVNetInbound"
+  priority                    = 100
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
+  source_address_prefix       = "VirtualNetwork"
+  destination_address_prefix  = "VirtualNetwork"
+  resource_group_name         = azurerm_resource_group.main.name
+  network_security_group_name = azurerm_network_security_group.aca.name
+}
+
+resource "azurerm_network_security_rule" "aca_allow_lb_inbound" {
+  name                        = "AllowAzureLoadBalancerInbound"
+  priority                    = 110
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
+  source_address_prefix       = "AzureLoadBalancer"
+  destination_address_prefix  = "*"
+  resource_group_name         = azurerm_resource_group.main.name
+  network_security_group_name = azurerm_network_security_group.aca.name
+}
+
+resource "azurerm_network_security_rule" "aca_deny_internet_inbound" {
+  name                        = "DenyInternetInbound"
+  priority                    = 4000
+  direction                   = "Inbound"
+  access                      = "Deny"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
+  source_address_prefix       = "Internet"
+  destination_address_prefix  = "*"
+  resource_group_name         = azurerm_resource_group.main.name
+  network_security_group_name = azurerm_network_security_group.aca.name
+}
+
+resource "azurerm_network_security_rule" "aca_allow_vnet_outbound" {
+  name                        = "AllowVNetOutbound"
+  priority                    = 100
+  direction                   = "Outbound"
+  access                      = "Allow"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
+  source_address_prefix       = "VirtualNetwork"
+  destination_address_prefix  = "VirtualNetwork"
+  resource_group_name         = azurerm_resource_group.main.name
+  network_security_group_name = azurerm_network_security_group.aca.name
+}
+
+resource "azurerm_network_security_rule" "aca_allow_azurecloud_outbound" {
+  name                        = "AllowAzureCloudOutbound"
+  priority                    = 200
+  direction                   = "Outbound"
+  access                      = "Allow"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
+  source_address_prefix       = "*"
+  destination_address_prefix  = "AzureCloud"
+  resource_group_name         = azurerm_resource_group.main.name
+  network_security_group_name = azurerm_network_security_group.aca.name
+}
+
+resource "azurerm_network_security_rule" "aca_deny_internet_outbound" {
+  name                        = "DenyInternetOutbound"
+  priority                    = 4000
+  direction                   = "Outbound"
+  access                      = "Deny"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
+  source_address_prefix       = "*"
+  destination_address_prefix  = "Internet"
+  resource_group_name         = azurerm_resource_group.main.name
+  network_security_group_name = azurerm_network_security_group.aca.name
+}
