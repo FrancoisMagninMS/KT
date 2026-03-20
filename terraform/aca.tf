@@ -5,6 +5,7 @@ resource "azurerm_container_app_environment" "aca" {
   log_analytics_workspace_id     = azurerm_log_analytics_workspace.main.id
   infrastructure_subnet_id       = azurerm_subnet.aca.id
   internal_load_balancer_enabled = true
+  zone_redundancy_enabled        = false
 }
 
 resource "azurerm_container_app" "hello_korea" {
