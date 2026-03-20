@@ -16,6 +16,12 @@ output "log_analytics_workspace_name" {
   value = azurerm_log_analytics_workspace.main.name
 }
 
+# ────────────────────────── NAT Gateway ───────────────────────
+
+output "nat_gateway_public_ip" {
+  value = azurerm_public_ip.nat.ip_address
+}
+
 # ────────────────────────── AKS ──────────────────────────────
 
 output "aks_cluster_name" {

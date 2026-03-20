@@ -23,20 +23,5 @@ resource "azurerm_monitor_diagnostic_setting" "vnet" {
   }
 }
 
-resource "azurerm_monitor_diagnostic_setting" "aks" {
-  name                       = "aks-diagnostics"
-  target_resource_id         = azurerm_kubernetes_cluster.aks.id
-  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
-
-  enabled_log {
-    category_group = "allLogs"
-  }
-
-  metric {
-    category = "AllMetrics"
-    enabled  = true
-  }
-}
-
-# Note: ACR and Key Vault diagnostic settings are managed by Azure Policy
+# Note: AKS, ACR, and Key Vault diagnostic settings are managed by Azure Policy
 # (DeployIfNotExists policy creates 'setByPolicy' diagnostic settings automatically)

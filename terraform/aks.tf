@@ -39,10 +39,12 @@ resource "azurerm_kubernetes_cluster" "aks" {
     network_policy = "azure"
     service_cidr   = "10.1.0.0/16"
     dns_service_ip = "10.1.0.10"
+    outbound_type  = "userAssignedNATGateway"
   }
 
   depends_on = [
     azurerm_role_assignment.aks_cp_network,
     azurerm_role_assignment.aks_cp_mi_operator,
+    azurerm_subnet_nat_gateway_association.aks,
   ]
 }
