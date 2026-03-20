@@ -7,7 +7,7 @@ This guide walks through deploying the two **Hello Korea** sample applications:
 | `hello-korea-aks` | Azure Kubernetes Service (private cluster) | Internal VNet only |
 | `hello-korea-aca` | Azure Container Apps (internal environment) | Internal VNet only |
 
-Both services are locked down — no internet inbound or outbound. Communication is allowed only within the private VNet.
+Both services are locked down — no internet inbound, outbound controlled via NAT Gateway. Communication is allowed only within the private VNet.
 
 ---
 
@@ -16,21 +16,21 @@ Both services are locked down — no internet inbound or outbound. Communication
 - Azure CLI (`az`) installed and authenticated
 - Docker (or Podman) for building container images
 - Access to the Azure subscription (`MCAPS-Hybrid-ISD-Incubation`)
-- The GitHub Actions workflow has successfully run `apply` on the `feature/hello-korea-apps` branch
+- The GitHub Actions workflow has successfully run `apply`
 
 ---
 
 ## Step 1 — Deploy Infrastructure
 
-1. Push the `feature/hello-korea-apps` branch to GitHub (if not already done):
+1. Push to GitHub (if not already done):
 
    ```bash
-   git push origin feature/hello-korea-apps
+   git push origin main
    ```
 
 2. Go to **GitHub → Actions → Deploy KT Infrastructure**.
 
-3. Click **Run workflow**, select branch `feature/hello-korea-apps`, action = `apply`.
+3. Click **Run workflow**, select branch, action = `apply`.
 
 4. Wait for the workflow to complete. Note the outputs:
    - `acr_login_server` — your ACR login server (e.g. `acrktprodxxxx.azurecr.io`)
@@ -300,31 +300,35 @@ az containerapp env show \
 ## Network Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  VNet: 10.0.0.0/16                                  │
-│                                                     │
-│  ┌──────────────────┐  ┌──────────────────────────┐ │
-│  │ snet-aks         │  │ snet-aca                 │ │
-│  │ 10.0.0.0/22      │  │ 10.0.4.0/23              │ │
-│  │                  │  │                          │ │
-│  │  AKS (private)   │  │  ACA (internal LB)       │ │
-│  │  hello-korea     │◄─┤  ca-hello-korea          │ │
-│  │                  │  │                          │ │
-│  └──────────────────┘  └──────────────────────────┘ │
-│                                                     │
-│  ┌──────────────────┐                               │
-│  │ snet-postgresql   │                               │
-│  │ 10.0.6.0/24      │                               │
-│  │                  │                               │
-│  │  PostgreSQL       │                               │
-│  └──────────────────┘                               │
-│                                                     │
-│  NSG Rules (both subnets):                          │
-│  ✅ Allow VNet ↔ VNet                                │
-│  ✅ Allow → AzureCloud (management)                  │
-│  ❌ Deny ← Internet (inbound)                       │
-│  ❌ Deny → Internet (outbound)                      │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  VNet: 10.0.0.0/16                                           │
+│                                                              │
+│  ┌──────────────────┐  ┌──────────────────────────┐          │
+│  │ snet-aks         │  │ snet-aca                 │          │
+│  │ 10.0.0.0/22      │  │ 10.0.4.0/23              │          │
+│  │                  │  │                          │          │
+│  │  AKS (private)   │  │  ACA (internal LB)       │          │
+│  │  hello-korea     │◄─┤  ca-hello-korea          │          │
+│  │                  │  │                          │          │
+│  └────────┬─────────┘  └──────────────────────────┘          │
+│           │                                                  │
+│  ┌────────▼─────────┐  ┌──────────────────────────┐          │
+│  │ NAT Gateway      │  │ snet-postgresql           │          │
+│  │ (static public   │  │ 10.0.6.0/24              │          │
+│  │  IP for egress)  │  │                          │          │
+│  └──────────────────┘  │  PostgreSQL (private DNS) │          │
+│                        └──────────────────────────┘          │
+│                                                              │
+│  Outbound: default_outbound_access_enabled = false (all)     │
+│  AKS outbound routed through NAT Gateway (single static IP) │
+│                                                              │
+│  NSG Rules (AKS subnet):                                    │
+│  ✅ Allow VNet ↔ VNet                                        │
+│  ✅ Allow → AzureCloud (management)                          │
+│  ❌ Deny ← Internet (inbound)                               │
+│  ACA: NSG auto-managed by Azure                             │
+│  PostgreSQL: delegated subnet, no direct internet            │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -335,12 +339,12 @@ All resources send diagnostics to a **single Log Analytics Workspace** (`law-kt-
 
 | Resource | Diagnostics |
 |----------|-------------|
-| AKS | OMS Agent + platform diagnostics |
+| AKS | OMS Agent + Azure Policy (`setByPolicy`) |
 | ACA | Built-in LAW integration |
-| PostgreSQL | Diagnostic setting (allLogs + AllMetrics) |
-| VNet | Diagnostic setting (allLogs + AllMetrics) |
-| ACR | Diagnostic setting (allLogs + AllMetrics) |
-| Key Vault | Diagnostic setting (allLogs + AllMetrics) |
+| PostgreSQL | Terraform diagnostic setting (allLogs + AllMetrics) |
+| VNet | Terraform diagnostic setting (allLogs + AllMetrics) |
+| ACR | Azure Policy (`setByPolicy` — DeployIfNotExists) |
+| Key Vault | Azure Policy (`setByPolicy` — DeployIfNotExists) |
 
 Alerts are sent to: **frmagnin@microsoft.com**
 
@@ -364,12 +368,42 @@ Alerts are sent to: **frmagnin@microsoft.com**
 
 ---
 
+## CI/CD Pipeline
+
+The GitHub Actions workflow (`deploy.yml`) runs the following jobs:
+
+| Job | Purpose |
+|-----|---------|
+| **validate-config** | Checks that all required secrets and variables are set |
+| **security-scan** | Runs tfsec, TFLint, Checkov, TruffleHog, and Trivy |
+| **bootstrap** | Creates the Terraform state backend (storage account) |
+| **terraform** | `plan` / `apply` / `destroy` |
+| **build-and-push** | Builds container images via ACR Tasks (on `apply`) |
+| **deploy-aks** | Deploys to AKS via `az aks command invoke` (on `apply`) |
+| **deploy-aca** | Updates ACA container app image (on `apply`) |
+
+### Security Scanning
+
+The pipeline includes five security scanners that run before any infrastructure changes:
+
+| Scanner | What it checks |
+|---------|---------------|
+| **tfsec** | Terraform-specific security misconfigurations (SARIF → GitHub Security tab) |
+| **TFLint** | Terraform linting and best practices |
+| **Checkov** | Broad IaC policy checks (CIS, NIST) with SARIF upload |
+| **TruffleHog** | Detects committed secrets and credentials |
+| **Trivy** | Container image vulnerability scanning (HIGH/CRITICAL) |
+
+Scanning results are uploaded as SARIF to the GitHub **Security → Code scanning** tab for tfsec and Checkov.
+
+---
+
 ## Cleanup
 
 To tear down all resources:
 
 1. Go to **GitHub → Actions → Deploy KT Infrastructure**
-2. Click **Run workflow**, select branch `feature/hello-korea-apps`, action = `destroy`
+2. Click **Run workflow**, select the branch, action = `destroy`
 
 Or manually:
 
