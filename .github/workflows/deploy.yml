@@ -688,6 +688,12 @@ jobs:
 
       - name: Terraform Init
         run: |
+          echo "Verifying storage access..."
+          az storage blob list \
+            --account-name stkttfstate \
+            --container-name tfstate \
+            --auth-mode login \
+            --query "length(@)" -o tsv || echo "::warning::az storage list failed"
           terraform init -reconfigure \
             -backend-config="resource_group_name=rg-kt-tfstate" \
             -backend-config="storage_account_name=stkttfstate" \
