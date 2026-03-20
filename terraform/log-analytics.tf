@@ -38,32 +38,5 @@ resource "azurerm_monitor_diagnostic_setting" "aks" {
   }
 }
 
-resource "azurerm_monitor_diagnostic_setting" "acr" {
-  name                       = "acr-diagnostics"
-  target_resource_id         = azurerm_container_registry.acr.id
-  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
-
-  enabled_log {
-    category_group = "allLogs"
-  }
-
-  metric {
-    category = "AllMetrics"
-    enabled  = true
-  }
-}
-
-resource "azurerm_monitor_diagnostic_setting" "keyvault" {
-  name                       = "kv-diagnostics"
-  target_resource_id         = azurerm_key_vault.main.id
-  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
-
-  enabled_log {
-    category_group = "allLogs"
-  }
-
-  metric {
-    category = "AllMetrics"
-    enabled  = true
-  }
-}
+# Note: ACR and Key Vault diagnostic settings are managed by Azure Policy
+# (DeployIfNotExists policy creates 'setByPolicy' diagnostic settings automatically)

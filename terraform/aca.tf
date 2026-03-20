@@ -1,3 +1,17 @@
+# Import the existing ACA environment into the new azapi resource
+import {
+  to = azapi_resource.aca_environment
+  id = "/subscriptions/${var.subscription_id}/resourceGroups/rg-${var.project}-${var.environment}/providers/Microsoft.App/managedEnvironments/cae-${var.project}-${var.environment}"
+}
+
+# Remove the old azurerm resource from state without destroying it
+removed {
+  from = azurerm_container_app_environment.aca
+  lifecycle {
+    destroy = false
+  }
+}
+
 resource "azapi_resource" "aca_environment" {
   type      = "Microsoft.App/managedEnvironments@2024-10-02-preview"
   name      = "cae-${var.project}-${var.environment}"
