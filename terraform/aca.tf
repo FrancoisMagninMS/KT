@@ -6,6 +6,11 @@ resource "azurerm_container_app_environment" "aca" {
   infrastructure_subnet_id       = azurerm_subnet.aca.id
   internal_load_balancer_enabled = true
   zone_redundancy_enabled        = false
+
+  workload_profile {
+    name                  = "Consumption"
+    workload_profile_type = "Consumption"
+  }
 }
 
 resource "azurerm_container_app" "hello_korea" {
