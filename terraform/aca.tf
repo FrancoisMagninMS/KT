@@ -1,13 +1,14 @@
 resource "azurerm_container_app_environment" "aca" {
-  name                       = "cae-${var.project}-${var.environment}"
-  location                   = azurerm_resource_group.main.location
-  resource_group_name        = azurerm_resource_group.main.name
-  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
-  infrastructure_subnet_id   = azurerm_subnet.aca.id
+  name                           = "cae-${var.project}-${var.environment}"
+  location                       = azurerm_resource_group.main.location
+  resource_group_name            = azurerm_resource_group.main.name
+  log_analytics_workspace_id     = azurerm_log_analytics_workspace.main.id
+  infrastructure_subnet_id       = azurerm_subnet.aca.id
+  internal_load_balancer_enabled = true
 }
 
-resource "azurerm_container_app" "placeholder" {
-  name                         = "ca-placeholder"
+resource "azurerm_container_app" "hello_korea" {
+  name                         = "ca-hello-korea"
   container_app_environment_id = azurerm_container_app_environment.aca.id
   resource_group_name          = azurerm_resource_group.main.name
   revision_mode                = "Single"
@@ -17,9 +18,14 @@ resource "azurerm_container_app" "placeholder" {
     identity_ids = [azurerm_user_assigned_identity.aca.id]
   }
 
+  registry {
+    server   = azurerm_container_registry.acr.login_server
+    identity = azurerm_user_assigned_identity.aca.id
+  }
+
   ingress {
     external_enabled = true
-    target_port      = 80
+    target_port      = 8080
     traffic_weight {
       percentage      = 100
       latest_revision = true
@@ -28,7 +34,7 @@ resource "azurerm_container_app" "placeholder" {
 
   template {
     container {
-      name   = "hello"
+      name   = "hello-korea"
       image  = "mcr.microsoft.com/k8se/quickstart:latest"
       cpu    = 0.25
       memory = "0.5Gi"

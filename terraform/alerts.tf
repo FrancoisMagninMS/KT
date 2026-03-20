@@ -364,3 +364,181 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "pg_wal_growth_spike" 
 
   depends_on = [azurerm_monitor_diagnostic_setting.postgresql]
 }
+
+###############################################################################
+# D. AKS ALERTS
+###############################################################################
+
+# D1. AKS Node CPU > 80%
+resource "azurerm_monitor_metric_alert" "aks_node_cpu" {
+  name                = "aks-node-cpu-high"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [azurerm_kubernetes_cluster.aks.id]
+  description         = "AKS node CPU usage exceeds 80%"
+  severity            = 2
+  window_size         = "PT5M"
+  frequency           = "PT1M"
+
+  criteria {
+    metric_namespace = "Microsoft.ContainerService/managedClusters"
+    metric_name      = "node_cpu_usage_percentage"
+    aggregation      = "Average"
+    operator         = "GreaterThan"
+    threshold        = 80
+  }
+
+  action {
+    action_group_id = azurerm_monitor_action_group.main.id
+  }
+}
+
+# D2. AKS Node Memory > 80%
+resource "azurerm_monitor_metric_alert" "aks_node_memory" {
+  name                = "aks-node-memory-high"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [azurerm_kubernetes_cluster.aks.id]
+  description         = "AKS node memory working set exceeds 80%"
+  severity            = 2
+  window_size         = "PT5M"
+  frequency           = "PT1M"
+
+  criteria {
+    metric_namespace = "Microsoft.ContainerService/managedClusters"
+    metric_name      = "node_memory_working_set_percentage"
+    aggregation      = "Average"
+    operator         = "GreaterThan"
+    threshold        = 80
+  }
+
+  action {
+    action_group_id = azurerm_monitor_action_group.main.id
+  }
+}
+
+# D3. AKS Node Disk > 85%
+resource "azurerm_monitor_metric_alert" "aks_node_disk" {
+  name                = "aks-node-disk-high"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [azurerm_kubernetes_cluster.aks.id]
+  description         = "AKS node disk usage exceeds 85%"
+  severity            = 1
+  window_size         = "PT5M"
+  frequency           = "PT1M"
+
+  criteria {
+    metric_namespace = "Microsoft.ContainerService/managedClusters"
+    metric_name      = "node_disk_usage_percentage"
+    aggregation      = "Average"
+    operator         = "GreaterThan"
+    threshold        = 85
+  }
+
+  action {
+    action_group_id = azurerm_monitor_action_group.main.id
+  }
+}
+
+# D4. AKS Pods Not Ready (KQL)
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "aks_pods_not_ready" {
+  name                 = "aks-pods-not-ready"
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_resource_group.main.location
+  description          = "Pods in non-ready state for more than 5 minutes"
+  severity             = 1
+  evaluation_frequency = "PT5M"
+  window_duration      = "PT5M"
+  scopes               = [azurerm_log_analytics_workspace.main.id]
+
+  criteria {
+    query                   = <<-KQL
+      KubePodInventory
+      | where ClusterName == '${azurerm_kubernetes_cluster.aks.name}'
+      | where PodStatus !in ('Running', 'Succeeded')
+      | summarize count() by PodStatus, Name
+    KQL
+    time_aggregation_method = "Count"
+    operator                = "GreaterThan"
+    threshold               = 0
+  }
+
+  action {
+    action_groups = [azurerm_monitor_action_group.main.id]
+  }
+}
+
+# D5. AKS OOMKilled Containers (KQL)
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "aks_oom_killed" {
+  name                 = "aks-oom-killed"
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_resource_group.main.location
+  description          = "OOMKilled containers detected on AKS"
+  severity             = 1
+  evaluation_frequency = "PT5M"
+  window_duration      = "PT5M"
+  scopes               = [azurerm_log_analytics_workspace.main.id]
+
+  criteria {
+    query                   = <<-KQL
+      KubeEvents
+      | where ClusterName == '${azurerm_kubernetes_cluster.aks.name}'
+      | where Reason == 'OOMKilled'
+    KQL
+    time_aggregation_method = "Count"
+    operator                = "GreaterThan"
+    threshold               = 0
+  }
+
+  action {
+    action_groups = [azurerm_monitor_action_group.main.id]
+  }
+}
+
+###############################################################################
+# E. ACA ALERTS
+###############################################################################
+
+# E1. ACA Container Restarts
+resource "azurerm_monitor_metric_alert" "aca_restarts" {
+  name                = "aca-restarts"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [azurerm_container_app.hello_korea.id]
+  description         = "ACA Hello Korea container restart count exceeds 3"
+  severity            = 1
+  window_size         = "PT5M"
+  frequency           = "PT1M"
+
+  criteria {
+    metric_namespace = "Microsoft.App/containerApps"
+    metric_name      = "RestartCount"
+    aggregation      = "Total"
+    operator         = "GreaterThan"
+    threshold        = 3
+  }
+
+  action {
+    action_group_id = azurerm_monitor_action_group.main.id
+  }
+}
+
+# E2. ACA Replica Count = 0 (app down)
+resource "azurerm_monitor_metric_alert" "aca_replicas_zero" {
+  name                = "aca-replicas-zero"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [azurerm_container_app.hello_korea.id]
+  description         = "ACA Hello Korea has zero running replicas"
+  severity            = 0
+  window_size         = "PT5M"
+  frequency           = "PT1M"
+
+  criteria {
+    metric_namespace = "Microsoft.App/containerApps"
+    metric_name      = "Replicas"
+    aggregation      = "Maximum"
+    operator         = "LessThanOrEqual"
+    threshold        = 0
+  }
+
+  action {
+    action_group_id = azurerm_monitor_action_group.main.id
+  }
+}
