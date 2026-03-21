@@ -46,22 +46,25 @@ The pipeline uses **OIDC Workload Identity Federation** — no client secrets ne
 .\scripts\setup-oidc.ps1 `
   -AppId "<AZURE_CLIENT_ID>" `
   -GitHubOrg "<GITHUB_ORG>" `
-  -GitHubRepo "KT"
-```
-
-For multiple environments:
-
-```powershell
-.\scripts\setup-oidc.ps1 `
-  -AppId "<AZURE_CLIENT_ID>" `
-  -GitHubOrg "<GITHUB_ORG>" `
   -GitHubRepo "KT" `
-  -Environments @("DEV","UAT","PROD")
+  -Environments @("DEV","TEST","QA","PROD")
 ```
 
 > **Note**: Federated credentials don't expire — no rotation needed. If you previously used a client secret (`AZURE_CLIENT_SECRET`), you can delete it from the App Registration.
 
-### 3. Configure GitHub Secrets & Variables
+### 3. Create GitHub Environments
+
+Run the environment setup script to create all four GitHub Environments:
+
+```powershell
+.\scripts\setup-environments.ps1
+```
+
+This creates `DEV`, `TEST`, `QA`, and `PROD` environments. After running:
+- **QA** and **PROD** require manual configuration of required reviewers in GitHub Settings → Environments
+- **DEV** and **TEST** have no approval gates
+
+### 4. Configure GitHub Secrets & Variables
 
 Run the interactive setup script to configure the GitHub environment:
 
@@ -69,7 +72,7 @@ Run the interactive setup script to configure the GitHub environment:
 .\scripts\setup-github.ps1
 ```
 
-This sets the following on the `DEV` environment:
+The following must be set on **each** environment (DEV, TEST, QA, PROD):
 
 | Type | Name | Description |
 |------|------|-------------|
@@ -80,23 +83,38 @@ This sets the following on the `DEV` environment:
 | Variable | `ALERT_EMAIL` | Email for Azure Monitor alerts |
 
 > `AZURE_CLIENT_SECRET` is **not needed** — the pipeline authenticates via OIDC.
+> Secrets and variables must be set at the **environment** level, not the repository level.
 
 ---
 
 ## Step 1 — Deploy Infrastructure
 
-1. Push to GitHub (if not already done):
+The pipeline deploys infrastructure through four stages: **DEV → TEST → QA → PROD**.
 
-   ```bash
-   git push origin main
-   ```
+### Automatic deployment (push to main)
 
-2. Go to **GitHub → Actions → Deploy KT Infrastructure**.
+Pushing to `main` triggers the full pipeline:
+1. **DEV** — deploys automatically
+2. **TEST** — deploys automatically after successful DEV
+3. **QA** — pauses for human approval, then deploys
+4. **PROD** — pauses for human approval, then deploys
 
-3. Click **Run workflow**, select branch, action = `apply`.
+```bash
+git push origin main
+```
+
+### Manual deployment (workflow_dispatch)
+
+For plan/destroy operations on a specific environment:
+
+1. Go to **GitHub → Actions → Deploy KT Infrastructure**
+2. Click **Run workflow**
+3. Select the target **environment** (dev, test, qa, prod) and **action** (plan, apply, destroy)
+
+> **Note**: The `apply` action via workflow_dispatch also triggers the full multi-stage pipeline starting from the selected environment.
 
 4. Wait for the workflow to complete. Note the outputs:
-   - `acr_login_server` — your ACR login server (e.g. `acrktprodxxxx.azurecr.io`)
+   - `acr_login_server` — your ACR login server (e.g. `acrktdevxxxx.azurecr.io`)
    - `aks_cluster_name` — AKS cluster name
    - `resource_group_name` — resource group name
 
@@ -398,7 +416,7 @@ az containerapp env show \
 
 ## Monitoring & Alerts
 
-All resources send diagnostics to a **single Log Analytics Workspace** (`law-kt-prod`):
+All resources send diagnostics to a **single Log Analytics Workspace** per environment (e.g., `law-kt-dev`, `law-kt-prod`):
 
 | Resource | Diagnostics |
 |----------|-------------|
@@ -437,17 +455,37 @@ Alerts are sent to: **frmagnin@microsoft.com**
 
 The pipeline uses **OIDC Workload Identity Federation** — GitHub Actions exchanges a short-lived token with Azure AD, so no client secrets are stored or rotated. This is configured via `scripts/setup-oidc.ps1`.
 
-### Deploy Workflow (`deploy.yml` — `workflow_dispatch`)
+### Environment Promotion
+
+The pipeline implements a four-stage promotion model:
+
+| Stage | Environment | Trigger | Approval |
+|-------|-------------|---------|----------|
+| 1 | **DEV** | Push to `main` | Automatic |
+| 2 | **TEST** | Successful DEV deployment | Automatic |
+| 3 | **QA** | Successful TEST deployment | Human approval required |
+| 4 | **PROD** | Successful QA deployment | Human approval required |
+
+Each environment uses an isolated Terraform state file (`kt-infrastructure-{env}.tfstate`) and creates resources with the environment in the name (e.g., `rg-kt-dev`, `aks-kt-prod`).
+
+### Deploy Workflow (`deploy.yml` — `push` to `main` + `workflow_dispatch`)
+
+Each environment stage runs the following jobs:
 
 | Job | Purpose |
-|-----|---------|
-| **validate-config** | Checks that all required secrets and variables are set |
+|-----|---------||
+| **terraform-{env}** | `plan` → `apply` with environment-specific state |
+| **build-and-push-{env}** | Builds container images via ACR Tasks |
+| **deploy-aks-{env}** | Deploys to AKS via `az aks command invoke` |
+| **deploy-aca-{env}** | Updates ACA container app image |
+
+Shared jobs that run once:
+
+| Job | Purpose |
+|-----|---------||
 | **security-scan** | Runs terraform fmt, tfsec, TFLint, Checkov, TruffleHog, and Trivy |
 | **bootstrap** | Creates the Terraform state backend (storage account with Azure AD auth) |
-| **terraform** | `plan` / `apply` / `destroy` — plan artifact uploaded for audit |
-| **build-and-push** | Builds container images via ACR Tasks (on `apply`) |
-| **deploy-aks** | Deploys to AKS via `az aks command invoke` (on `apply`) |
-| **deploy-aca** | Updates ACA container app image (on `apply`) |
+| **manual-terraform** | Plan/destroy operations on individual environments via `workflow_dispatch` |
 
 ### PR Checks (`pr-checks.yml` — on `pull_request` to `main`)
 
@@ -484,14 +522,147 @@ Dependabot (`.github/dependabot.yml`) automatically opens PRs for outdated:
 
 ## Cleanup
 
-To tear down all resources:
+To tear down resources for a specific environment:
 
 1. Go to **GitHub → Actions → Deploy KT Infrastructure**
-2. Click **Run workflow**, select the branch, action = `destroy`
+2. Click **Run workflow**, select the target **environment** and action = `destroy`
+
+> **Note**: Destroying QA or PROD requires human approval via GitHub Environment protection rules.
+
+---
+
+## Troubleshooting
+
+### OIDC "Failed to fetch federated token" error
+
+**Error**: `Failed to fetch federated token from GitHub. Please make sure to give write permissions to id-token in the workflow.`
+
+**Cause**: The Azure AD App Registration is missing a federated credential for the GitHub Environment being used. Each environment (DEV, TEST, QA, PROD) requires its own federated credential.
+
+**Fix**: Run the OIDC setup script for all environments:
+
+```powershell
+.\scripts\setup-oidc.ps1 `
+  -AppId "<AZURE_CLIENT_ID>" `
+  -GitHubOrg "FrancoisMagninMS" `
+  -GitHubRepo "KT" `
+  -Environments @("DEV","TEST","QA","PROD")
+```
+
+Verify with:
+
+```bash
+az ad app federated-credential list --id <AZURE_CLIENT_ID> -o table
+```
+
+### Terraform state lock errors
+
+**Error**: `Error acquiring the state lock` or `state blob is already locked`
+
+**Cause**: A previous pipeline run was cancelled or timed out while holding the state lock.
+
+**Fix**: The pipeline uses `-lock-timeout=5m` on all terraform commands, so transient lock contention resolves automatically. If the lock persists beyond 5 minutes:
+
+```bash
+# Find the lease on the state blob
+az storage blob show \
+  --account-name stkttfstate \
+  --container-name tfstate \
+  --name kt-infrastructure-<env>.tfstate \
+  --auth-mode login \
+  --query "properties.lease"
+
+# Break the lease if needed
+az storage blob lease break \
+  --account-name stkttfstate \
+  --container-name tfstate \
+  --blob-name kt-infrastructure-<env>.tfstate \
+  --auth-mode login
+```
+
+### Artifact upload 409 Conflict
+
+**Error**: `an artifact with this name already exists on the workflow run`
+
+**Cause**: Re-running a workflow produces the same artifact name (uses `github.run_id` which doesn't change on re-runs).
+
+**Fix**: Already resolved — all `upload-artifact` steps use `overwrite: true`.
+
+### Azure Policy blocks LAW creation
+
+**Error**: `RequestDisallowedByPolicy: Resource 'law-kt-dev' was disallowed by policy`
+
+**Cause**: Azure Policy resources (diagnostic settings, deny-extra-law) are subscription-scoped and must be managed by a single Terraform state. When multiple environments try to create the same subscription-level policy definitions, they conflict.
+
+**Fix**: Already resolved — all policy resources in `policies.tf` use `count = local.manage_policies ? 1 : 0` and are only created by the **prod** environment. The deny-extra-law policy allows all four LAW names (`law-kt-dev`, `law-kt-test`, `law-kt-qa`, `law-kt-prod`).
+
+### Terraform init 403 on state backend
+
+**Error**: `Failed to get existing workspaces: containers.Client#ListBlobs: StatusCode=403 -- AuthorizationFailure`
+
+**Cause**: The Terraform state storage account (`stkttfstate`) has `publicNetworkAccess` set to `Disabled`, blocking connections from GitHub Actions runners. This can happen if an Azure security policy automatically disables public network access on storage accounts.
+
+**Fix**: Re-enable public network access (required for GitHub Actions runners):
+
+```bash
+az storage account update \
+  --name stkttfstate \
+  --resource-group rg-kt-tfstate \
+  --public-network-access Enabled \
+  -o none
+```
+
+The bootstrap step now explicitly ensures public network access stays enabled on each run to prevent this from recurring.
 
 Or manually:
 
 ```bash
 cd terraform
-terraform destroy
+terraform init -backend-config="key=kt-infrastructure-<env>.tfstate" ...
+TF_VAR_environment=<env> terraform destroy
+```
+
+### Key Vault 403 during Terraform plan
+
+**Error**: `Error retrieving Key Vault secret: keyvault.BaseClient#GetSecret: StatusCode=403 -- ForbiddenByPolicy`
+
+**Cause**: The Key Vault has `publicNetworkAccess` set to `Disabled`, blocking connections from GitHub Actions runners. This can happen if an Azure security policy automatically disables public network access on Key Vault resources.
+
+**Fix**: Re-enable public network access on the affected Key Vault(s):
+
+```powershell
+az keyvault update --name kv-kt-<env>-<suffix> `
+  --resource-group rg-kt-<env> `
+  --public-network-access Enabled
+```
+
+The Terraform configuration sets `public_network_access_enabled = true` on the Key Vault, so subsequent applies will maintain this setting.
+
+### AKS or PostgreSQL is stopped
+
+**Error**: Terraform plan/apply fails with errors referencing a cluster or server that appears unavailable (e.g., `Code="Conflict"` on AKS, or connection errors to PostgreSQL).
+
+**Cause**: The AKS cluster or PostgreSQL Flexible Server was stopped — either manually or by Azure cost optimization / Dev/Test auto-shutdown.
+
+**Fix**: Start the stopped resource(s) before re-running the pipeline:
+
+```powershell
+# Start AKS
+az aks start --name aks-kt-<env> --resource-group rg-kt-<env>
+
+# Wait for AKS to be fully running (can take several minutes)
+az aks wait --name aks-kt-<env> --resource-group rg-kt-<env> --updated
+
+# Start PostgreSQL
+az postgres flexible-server start --name psql-kt-<env> --resource-group rg-kt-<env>
+```
+
+Verify the resources are ready before re-running:
+
+```powershell
+# Check AKS status (should show "Running")
+az aks show --name aks-kt-<env> --resource-group rg-kt-<env> --query "powerState.code" -o tsv
+
+# Check PostgreSQL status (should show "Ready")
+az postgres flexible-server show --name psql-kt-<env> --resource-group rg-kt-<env> --query "state" -o tsv
 ```

@@ -13,8 +13,13 @@ variable "location" {
 
 variable "environment" {
   type        = string
-  default     = "prod"
-  description = "Environment name (dev, uat, prod)"
+  default     = "dev"
+  description = "Environment name (dev, test, qa, prod)"
+
+  validation {
+    condition     = contains(["dev", "test", "qa", "prod"], var.environment)
+    error_message = "Environment must be one of: dev, test, qa, prod."
+  }
 }
 
 variable "project" {

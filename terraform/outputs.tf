@@ -86,9 +86,9 @@ output "aca_identity_client_id" {
 # ────────────────────────── policies ─────────────────────────
 
 output "diagnostic_settings_policy_id" {
-  value = azurerm_policy_definition.diagnostic_settings.id
+  value = length(azurerm_policy_definition.diagnostic_settings) > 0 ? azurerm_policy_definition.diagnostic_settings[0].id : null
 }
 
 output "deny_extra_law_policy_id" {
-  value = azurerm_policy_definition.deny_extra_law.id
+  value = length(azurerm_policy_definition.deny_extra_law) > 0 ? azurerm_policy_definition.deny_extra_law[0].id : null
 }

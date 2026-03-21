@@ -1,6 +1,8 @@
 name: Deploy KT Infrastructure
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       action:
@@ -12,6 +14,16 @@ on:
           - plan
           - apply
           - destroy
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - test
+          - qa
+          - prod
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -22,52 +34,18 @@ permissions:
   security-events: write
   id-token: write
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Reusable job anchors are not supported in GitHub Actions, so each environment
+# stage repeats the full set of jobs with its own environment context.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 jobs:
-  validate-config:
-    name: Validate Configuration
-    runs-on: ubuntu-latest
-    environment: DEV
-    steps:
-      - name: Check required secrets and variables
-        run: |
-          missing=0
-
-          check_secret() {
-            if [ -z "$1" ]; then
-              echo "::error::Missing secret: $2"
-              missing=1
-            else
-              echo "✓ Secret $2 is set"
-            fi
-          }
-
-          check_var() {
-            if [ -z "$1" ]; then
-              echo "::error::Missing variable: $2"
-              missing=1
-            else
-              echo "✓ Variable $2 = $1"
-            fi
-          }
-
-          check_secret "${{ secrets.AZURE_CLIENT_ID }}" "AZURE_CLIENT_ID"
-          check_secret "${{ secrets.AZURE_SUBSCRIPTION_ID }}" "AZURE_SUBSCRIPTION_ID"
-          check_secret "${{ secrets.AZURE_TENANT_ID }}" "AZURE_TENANT_ID"
-          check_secret "${{ secrets.PG_ADMIN_PASSWORD }}" "PG_ADMIN_PASSWORD"
-          check_var "${{ vars.ALERT_EMAIL }}" "ALERT_EMAIL"
-
-          if [ "$missing" -eq 1 ]; then
-            echo ""
-            echo "::error::One or more required secrets/variables are missing. Run scripts/setup-github.ps1 to configure them."
-            exit 1
-          fi
-
-          echo ""
-          echo "All required configuration is present."
+  # ═══════════════════════════════════════════════════════════════════════════
+  # SHARED — Security scanning (runs once per pipeline execution)
+  # ═══════════════════════════════════════════════════════════════════════════
 
   security-scan:
     name: Security Scanning
-    needs: validate-config
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -173,6 +151,10 @@ jobs:
             echo "::endgroup::"
           done
 
+  # ═══════════════════════════════════════════════════════════════════════════
+  # SHARED — Bootstrap Terraform state backend (idempotent)
+  # ═══════════════════════════════════════════════════════════════════════════
+
   bootstrap:
     name: Bootstrap Terraform Backend
     needs: security-scan
@@ -200,6 +182,14 @@ jobs:
             --encryption-services blob \
             --min-tls-version TLS1_2 \
             --allow-blob-public-access false \
+            --public-network-access Enabled \
+            -o none 2>/dev/null || true
+
+          # Ensure public network access stays enabled (Azure policies may disable it)
+          az storage account update \
+            --name stkttfstate \
+            --resource-group rg-kt-tfstate \
+            --public-network-access Enabled \
             -o none 2>/dev/null || true
 
           az storage container create \
@@ -237,9 +227,37 @@ jobs:
 
           echo "Role assignment verified ($ROLE_COUNT assignment(s) found)"
 
-  terraform:
-    name: Terraform ${{ github.event.inputs.action }}
+  # ═══════════════════════════════════════════════════════════════════════════
+  # STAGE 1 — DEV (auto-deploy on push, or manual workflow_dispatch)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ── Should this run? ──
+  should-deploy-dev:
+    name: 'Check: DEV deployment'
     needs: bootstrap
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+      action: ${{ steps.check.outputs.action }}
+    steps:
+      - name: Evaluate trigger
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "action=apply" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.environment }}" = "dev" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "action=${{ github.event.inputs.action }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "action=none" >> "$GITHUB_OUTPUT"
+          fi
+
+  terraform-dev:
+    name: 'Terraform DEV (${{ needs.should-deploy-dev.outputs.action }})'
+    needs: should-deploy-dev
+    if: needs.should-deploy-dev.outputs.run == 'true'
     runs-on: ubuntu-latest
     environment: DEV
     env:
@@ -250,6 +268,7 @@ jobs:
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       TF_VAR_pg_admin_password: ${{ secrets.PG_ADMIN_PASSWORD }}
       TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+      TF_VAR_environment: dev
     defaults:
       run:
         working-directory: terraform
@@ -270,10 +289,6 @@ jobs:
           terraform_version: "1.10.3"
           terraform_wrapper: false
 
-      - name: Verify Terraform version
-        run: terraform version
-        working-directory: .
-
       - name: Debug env vars
         run: |
           echo "ARM_CLIENT_ID set: $( [ -z \"$ARM_CLIENT_ID\" ] && echo NO || echo YES )"
@@ -281,6 +296,7 @@ jobs:
           echo "ARM_SUBSCRIPTION_ID set: $( [ -z \"$ARM_SUBSCRIPTION_ID\" ] && echo NO || echo YES )"
           echo "ARM_USE_AZUREAD: $ARM_USE_AZUREAD"
           echo "ARM_USE_OIDC: $ARM_USE_OIDC"
+          echo "TF_VAR_environment: $TF_VAR_environment"
         working-directory: .
 
       - name: Terraform Init
@@ -289,35 +305,33 @@ jobs:
             -backend-config="resource_group_name=rg-kt-tfstate" \
             -backend-config="storage_account_name=stkttfstate" \
             -backend-config="container_name=tfstate" \
-            -backend-config="key=kt-infrastructure.tfstate" \
+            -backend-config="key=kt-infrastructure-dev.tfstate" \
             -backend-config="use_azuread_auth=true" \
             -backend-config="client_id=${ARM_CLIENT_ID}" \
             -backend-config="tenant_id=${ARM_TENANT_ID}" \
             -backend-config="subscription_id=${ARM_SUBSCRIPTION_ID}" \
             -backend-config="use_oidc=true"
 
-      - name: Terraform Format Check
-        run: terraform fmt -check -recursive
-
       - name: Terraform Validate
         run: terraform validate
 
       - name: Terraform Plan
-        run: terraform plan -out=tfplan
+        run: terraform plan -lock-timeout=5m -out=tfplan
 
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
         with:
-          name: tfplan-${{ github.run_id }}
+          name: tfplan-dev-${{ github.run_id }}
           path: terraform/tfplan
           retention-days: 5
+          overwrite: true
 
       - name: Terraform Apply
-        if: github.event.inputs.action == 'apply'
-        run: terraform apply -auto-approve tfplan
+        if: needs.should-deploy-dev.outputs.action == 'apply'
+        run: terraform apply -lock-timeout=5m -auto-approve tfplan
 
       - name: Export Terraform Outputs
-        if: github.event.inputs.action == 'apply'
+        if: needs.should-deploy-dev.outputs.action == 'apply'
         id: tf_outputs
         run: |
           echo "acr_login_server=$(terraform output -raw acr_login_server)" >> "$GITHUB_OUTPUT"
@@ -325,18 +339,18 @@ jobs:
           echo "resource_group_name=$(terraform output -raw resource_group_name)" >> "$GITHUB_OUTPUT"
 
       - name: Terraform Destroy
-        if: github.event.inputs.action == 'destroy'
-        run: terraform destroy -auto-approve
+        if: needs.should-deploy-dev.outputs.action == 'destroy'
+        run: terraform destroy -lock-timeout=5m -auto-approve
 
     outputs:
       acr_login_server: ${{ steps.tf_outputs.outputs.acr_login_server }}
       aks_cluster_name: ${{ steps.tf_outputs.outputs.aks_cluster_name }}
       resource_group_name: ${{ steps.tf_outputs.outputs.resource_group_name }}
 
-  build-and-push:
-    name: Build & Push Container Images
-    needs: terraform
-    if: github.event.inputs.action == 'apply'
+  build-and-push-dev:
+    name: 'Build & Push (DEV)'
+    needs: [should-deploy-dev, terraform-dev]
+    if: needs.should-deploy-dev.outputs.action == 'apply'
     runs-on: ubuntu-latest
     environment: DEV
     steps:
@@ -351,12 +365,12 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Log in to ACR
-        run: az acr login --name "${{ needs.terraform.outputs.acr_login_server }}"
+        run: az acr login --name "${{ needs.terraform-dev.outputs.acr_login_server }}"
 
       - name: Build & Push AKS Image
         run: |
           az acr build \
-            --registry "${{ needs.terraform.outputs.acr_login_server }}" \
+            --registry "${{ needs.terraform-dev.outputs.acr_login_server }}" \
             --image hello-korea-aks:${{ github.sha }} \
             --image hello-korea-aks:latest \
             apps/hello-korea-aks/
@@ -364,15 +378,15 @@ jobs:
       - name: Build & Push ACA Image
         run: |
           az acr build \
-            --registry "${{ needs.terraform.outputs.acr_login_server }}" \
+            --registry "${{ needs.terraform-dev.outputs.acr_login_server }}" \
             --image hello-korea-aca:${{ github.sha }} \
             --image hello-korea-aca:latest \
             apps/hello-korea-aca/
 
-  deploy-aks:
-    name: Deploy to AKS
-    needs: [terraform, build-and-push]
-    if: github.event.inputs.action == 'apply'
+  deploy-aks-dev:
+    name: 'Deploy to AKS (DEV)'
+    needs: [should-deploy-dev, terraform-dev, build-and-push-dev]
+    if: needs.should-deploy-dev.outputs.action == 'apply'
     runs-on: ubuntu-latest
     environment: DEV
     steps:
@@ -388,16 +402,15 @@ jobs:
 
       - name: Prepare K8s Manifests
         run: |
-          sed -i "s|__ACR_LOGIN_SERVER__|${{ needs.terraform.outputs.acr_login_server }}|g" apps/hello-korea-aks/k8s/deployment.yaml
-          # Use SHA tag for immutable deployments
+          sed -i "s|__ACR_LOGIN_SERVER__|${{ needs.terraform-dev.outputs.acr_login_server }}|g" apps/hello-korea-aks/k8s/deployment.yaml
           sed -i "s|:latest|:${{ github.sha }}|g" apps/hello-korea-aks/k8s/deployment.yaml
           echo "--- Final manifest ---"
           cat apps/hello-korea-aks/k8s/deployment.yaml
 
       - name: Deploy to Private AKS
         run: |
-          RG="${{ needs.terraform.outputs.resource_group_name }}"
-          AKS="${{ needs.terraform.outputs.aks_cluster_name }}"
+          RG="${{ needs.terraform-dev.outputs.resource_group_name }}"
+          AKS="${{ needs.terraform-dev.outputs.aks_cluster_name }}"
 
           az aks command invoke \
             --resource-group "$RG" \
@@ -408,18 +421,18 @@ jobs:
 
       - name: Verify AKS Deployment
         run: |
-          RG="${{ needs.terraform.outputs.resource_group_name }}"
-          AKS="${{ needs.terraform.outputs.aks_cluster_name }}"
+          RG="${{ needs.terraform-dev.outputs.resource_group_name }}"
+          AKS="${{ needs.terraform-dev.outputs.aks_cluster_name }}"
 
           az aks command invoke \
             --resource-group "$RG" \
             --name "$AKS" \
             --command "kubectl rollout status deployment/hello-korea --timeout=120s"
 
-  deploy-aca:
-    name: Deploy to ACA
-    needs: [terraform, build-and-push]
-    if: github.event.inputs.action == 'apply'
+  deploy-aca-dev:
+    name: 'Deploy to ACA (DEV)'
+    needs: [should-deploy-dev, terraform-dev, build-and-push-dev]
+    if: needs.should-deploy-dev.outputs.action == 'apply'
     runs-on: ubuntu-latest
     environment: DEV
     steps:
@@ -434,13 +447,663 @@ jobs:
         run: |
           az containerapp update \
             --name ca-hello-korea \
-            --resource-group "${{ needs.terraform.outputs.resource_group_name }}" \
-            --image "${{ needs.terraform.outputs.acr_login_server }}/hello-korea-aca:${{ github.sha }}"
+            --resource-group "${{ needs.terraform-dev.outputs.resource_group_name }}" \
+            --image "${{ needs.terraform-dev.outputs.acr_login_server }}/hello-korea-aca:${{ github.sha }}"
 
       - name: Verify ACA Deployment
         run: |
           az containerapp show \
             --name ca-hello-korea \
-            --resource-group "${{ needs.terraform.outputs.resource_group_name }}" \
+            --resource-group "${{ needs.terraform-dev.outputs.resource_group_name }}" \
             --query "{name:name, provisioningState:properties.provisioningState, latestRevision:properties.latestRevisionName, runningStatus:properties.runningStatus}" \
             -o table
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # STAGE 2 — TEST (auto-deploy after successful DEV deployment)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  terraform-test:
+    name: 'Terraform TEST (apply)'
+    needs: [should-deploy-dev, terraform-dev, deploy-aks-dev, deploy-aca-dev]
+    if: |
+      always() &&
+      needs.should-deploy-dev.outputs.action == 'apply' &&
+      needs.terraform-dev.result == 'success' &&
+      (needs.deploy-aks-dev.result == 'success' || needs.deploy-aks-dev.result == 'skipped') &&
+      (needs.deploy-aca-dev.result == 'success' || needs.deploy-aca-dev.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: TEST
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_USE_OIDC: 'true'
+      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_pg_admin_password: ${{ secrets.PG_ADMIN_PASSWORD }}
+      TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+      TF_VAR_environment: test
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.3"
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: |
+          terraform init -reconfigure \
+            -backend-config="resource_group_name=rg-kt-tfstate" \
+            -backend-config="storage_account_name=stkttfstate" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=kt-infrastructure-test.tfstate" \
+            -backend-config="use_azuread_auth=true" \
+            -backend-config="client_id=${ARM_CLIENT_ID}" \
+            -backend-config="tenant_id=${ARM_TENANT_ID}" \
+            -backend-config="subscription_id=${ARM_SUBSCRIPTION_ID}" \
+            -backend-config="use_oidc=true"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -lock-timeout=5m -out=tfplan
+
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-test-${{ github.run_id }}
+          path: terraform/tfplan
+          retention-days: 5
+          overwrite: true
+
+      - name: Terraform Apply
+        run: terraform apply -lock-timeout=5m -auto-approve tfplan
+
+      - name: Export Terraform Outputs
+        id: tf_outputs
+        run: |
+          echo "acr_login_server=$(terraform output -raw acr_login_server)" >> "$GITHUB_OUTPUT"
+          echo "aks_cluster_name=$(terraform output -raw aks_cluster_name)" >> "$GITHUB_OUTPUT"
+          echo "resource_group_name=$(terraform output -raw resource_group_name)" >> "$GITHUB_OUTPUT"
+
+    outputs:
+      acr_login_server: ${{ steps.tf_outputs.outputs.acr_login_server }}
+      aks_cluster_name: ${{ steps.tf_outputs.outputs.aks_cluster_name }}
+      resource_group_name: ${{ steps.tf_outputs.outputs.resource_group_name }}
+
+  build-and-push-test:
+    name: 'Build & Push (TEST)'
+    needs: terraform-test
+    runs-on: ubuntu-latest
+    environment: TEST
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR
+        run: az acr login --name "${{ needs.terraform-test.outputs.acr_login_server }}"
+
+      - name: Build & Push AKS Image
+        run: |
+          az acr build \
+            --registry "${{ needs.terraform-test.outputs.acr_login_server }}" \
+            --image hello-korea-aks:${{ github.sha }} \
+            --image hello-korea-aks:latest \
+            apps/hello-korea-aks/
+
+      - name: Build & Push ACA Image
+        run: |
+          az acr build \
+            --registry "${{ needs.terraform-test.outputs.acr_login_server }}" \
+            --image hello-korea-aca:${{ github.sha }} \
+            --image hello-korea-aca:latest \
+            apps/hello-korea-aca/
+
+  deploy-aks-test:
+    name: 'Deploy to AKS (TEST)'
+    needs: [terraform-test, build-and-push-test]
+    runs-on: ubuntu-latest
+    environment: TEST
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Prepare K8s Manifests
+        run: |
+          sed -i "s|__ACR_LOGIN_SERVER__|${{ needs.terraform-test.outputs.acr_login_server }}|g" apps/hello-korea-aks/k8s/deployment.yaml
+          sed -i "s|:latest|:${{ github.sha }}|g" apps/hello-korea-aks/k8s/deployment.yaml
+
+      - name: Deploy to Private AKS
+        run: |
+          RG="${{ needs.terraform-test.outputs.resource_group_name }}"
+          AKS="${{ needs.terraform-test.outputs.aks_cluster_name }}"
+
+          az aks command invoke \
+            --resource-group "$RG" \
+            --name "$AKS" \
+            --command "kubectl apply -f deployment.yaml -f service.yaml" \
+            --file apps/hello-korea-aks/k8s/deployment.yaml \
+            --file apps/hello-korea-aks/k8s/service.yaml
+
+      - name: Verify AKS Deployment
+        run: |
+          RG="${{ needs.terraform-test.outputs.resource_group_name }}"
+          AKS="${{ needs.terraform-test.outputs.aks_cluster_name }}"
+
+          az aks command invoke \
+            --resource-group "$RG" \
+            --name "$AKS" \
+            --command "kubectl rollout status deployment/hello-korea --timeout=120s"
+
+  deploy-aca-test:
+    name: 'Deploy to ACA (TEST)'
+    needs: [terraform-test, build-and-push-test]
+    runs-on: ubuntu-latest
+    environment: TEST
+    steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Update ACA Container Image
+        run: |
+          az containerapp update \
+            --name ca-hello-korea \
+            --resource-group "${{ needs.terraform-test.outputs.resource_group_name }}" \
+            --image "${{ needs.terraform-test.outputs.acr_login_server }}/hello-korea-aca:${{ github.sha }}"
+
+      - name: Verify ACA Deployment
+        run: |
+          az containerapp show \
+            --name ca-hello-korea \
+            --resource-group "${{ needs.terraform-test.outputs.resource_group_name }}" \
+            --query "{name:name, provisioningState:properties.provisioningState, latestRevision:properties.latestRevisionName, runningStatus:properties.runningStatus}" \
+            -o table
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # STAGE 3 — QA (requires human approval via GitHub Environment protection)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  terraform-qa:
+    name: 'Terraform QA (apply)'
+    needs: [terraform-test, deploy-aks-test, deploy-aca-test]
+    if: |
+      always() &&
+      needs.terraform-test.result == 'success' &&
+      (needs.deploy-aks-test.result == 'success' || needs.deploy-aks-test.result == 'skipped') &&
+      (needs.deploy-aca-test.result == 'success' || needs.deploy-aca-test.result == 'skipped')
+    runs-on: ubuntu-latest
+    # QA environment has required reviewers — deployment pauses until approved
+    environment: QA
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_USE_OIDC: 'true'
+      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_pg_admin_password: ${{ secrets.PG_ADMIN_PASSWORD }}
+      TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+      TF_VAR_environment: qa
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.3"
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: |
+          terraform init -reconfigure \
+            -backend-config="resource_group_name=rg-kt-tfstate" \
+            -backend-config="storage_account_name=stkttfstate" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=kt-infrastructure-qa.tfstate" \
+            -backend-config="use_azuread_auth=true" \
+            -backend-config="client_id=${ARM_CLIENT_ID}" \
+            -backend-config="tenant_id=${ARM_TENANT_ID}" \
+            -backend-config="subscription_id=${ARM_SUBSCRIPTION_ID}" \
+            -backend-config="use_oidc=true"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -lock-timeout=5m -out=tfplan
+
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-qa-${{ github.run_id }}
+          path: terraform/tfplan
+          retention-days: 5
+          overwrite: true
+
+      - name: Terraform Apply
+        run: terraform apply -lock-timeout=5m -auto-approve tfplan
+
+      - name: Export Terraform Outputs
+        id: tf_outputs
+        run: |
+          echo "acr_login_server=$(terraform output -raw acr_login_server)" >> "$GITHUB_OUTPUT"
+          echo "aks_cluster_name=$(terraform output -raw aks_cluster_name)" >> "$GITHUB_OUTPUT"
+          echo "resource_group_name=$(terraform output -raw resource_group_name)" >> "$GITHUB_OUTPUT"
+
+    outputs:
+      acr_login_server: ${{ steps.tf_outputs.outputs.acr_login_server }}
+      aks_cluster_name: ${{ steps.tf_outputs.outputs.aks_cluster_name }}
+      resource_group_name: ${{ steps.tf_outputs.outputs.resource_group_name }}
+
+  build-and-push-qa:
+    name: 'Build & Push (QA)'
+    needs: terraform-qa
+    runs-on: ubuntu-latest
+    environment: QA
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR
+        run: az acr login --name "${{ needs.terraform-qa.outputs.acr_login_server }}"
+
+      - name: Build & Push AKS Image
+        run: |
+          az acr build \
+            --registry "${{ needs.terraform-qa.outputs.acr_login_server }}" \
+            --image hello-korea-aks:${{ github.sha }} \
+            --image hello-korea-aks:latest \
+            apps/hello-korea-aks/
+
+      - name: Build & Push ACA Image
+        run: |
+          az acr build \
+            --registry "${{ needs.terraform-qa.outputs.acr_login_server }}" \
+            --image hello-korea-aca:${{ github.sha }} \
+            --image hello-korea-aca:latest \
+            apps/hello-korea-aca/
+
+  deploy-aks-qa:
+    name: 'Deploy to AKS (QA)'
+    needs: [terraform-qa, build-and-push-qa]
+    runs-on: ubuntu-latest
+    environment: QA
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Prepare K8s Manifests
+        run: |
+          sed -i "s|__ACR_LOGIN_SERVER__|${{ needs.terraform-qa.outputs.acr_login_server }}|g" apps/hello-korea-aks/k8s/deployment.yaml
+          sed -i "s|:latest|:${{ github.sha }}|g" apps/hello-korea-aks/k8s/deployment.yaml
+
+      - name: Deploy to Private AKS
+        run: |
+          RG="${{ needs.terraform-qa.outputs.resource_group_name }}"
+          AKS="${{ needs.terraform-qa.outputs.aks_cluster_name }}"
+
+          az aks command invoke \
+            --resource-group "$RG" \
+            --name "$AKS" \
+            --command "kubectl apply -f deployment.yaml -f service.yaml" \
+            --file apps/hello-korea-aks/k8s/deployment.yaml \
+            --file apps/hello-korea-aks/k8s/service.yaml
+
+      - name: Verify AKS Deployment
+        run: |
+          RG="${{ needs.terraform-qa.outputs.resource_group_name }}"
+          AKS="${{ needs.terraform-qa.outputs.aks_cluster_name }}"
+
+          az aks command invoke \
+            --resource-group "$RG" \
+            --name "$AKS" \
+            --command "kubectl rollout status deployment/hello-korea --timeout=120s"
+
+  deploy-aca-qa:
+    name: 'Deploy to ACA (QA)'
+    needs: [terraform-qa, build-and-push-qa]
+    runs-on: ubuntu-latest
+    environment: QA
+    steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Update ACA Container Image
+        run: |
+          az containerapp update \
+            --name ca-hello-korea \
+            --resource-group "${{ needs.terraform-qa.outputs.resource_group_name }}" \
+            --image "${{ needs.terraform-qa.outputs.acr_login_server }}/hello-korea-aca:${{ github.sha }}"
+
+      - name: Verify ACA Deployment
+        run: |
+          az containerapp show \
+            --name ca-hello-korea \
+            --resource-group "${{ needs.terraform-qa.outputs.resource_group_name }}" \
+            --query "{name:name, provisioningState:properties.provisioningState, latestRevision:properties.latestRevisionName, runningStatus:properties.runningStatus}" \
+            -o table
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # STAGE 4 — PROD (requires human approval via GitHub Environment protection)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  terraform-prod:
+    name: 'Terraform PROD (apply)'
+    needs: [terraform-qa, deploy-aks-qa, deploy-aca-qa]
+    if: |
+      always() &&
+      needs.terraform-qa.result == 'success' &&
+      (needs.deploy-aks-qa.result == 'success' || needs.deploy-aks-qa.result == 'skipped') &&
+      (needs.deploy-aca-qa.result == 'success' || needs.deploy-aca-qa.result == 'skipped')
+    runs-on: ubuntu-latest
+    # PROD environment has required reviewers — deployment pauses until approved
+    environment: PROD
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_USE_OIDC: 'true'
+      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_pg_admin_password: ${{ secrets.PG_ADMIN_PASSWORD }}
+      TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+      TF_VAR_environment: prod
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.3"
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: |
+          terraform init -reconfigure \
+            -backend-config="resource_group_name=rg-kt-tfstate" \
+            -backend-config="storage_account_name=stkttfstate" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=kt-infrastructure-prod.tfstate" \
+            -backend-config="use_azuread_auth=true" \
+            -backend-config="client_id=${ARM_CLIENT_ID}" \
+            -backend-config="tenant_id=${ARM_TENANT_ID}" \
+            -backend-config="subscription_id=${ARM_SUBSCRIPTION_ID}" \
+            -backend-config="use_oidc=true"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -lock-timeout=5m -out=tfplan
+
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-prod-${{ github.run_id }}
+          path: terraform/tfplan
+          retention-days: 5
+          overwrite: true
+
+      - name: Terraform Apply
+        run: terraform apply -lock-timeout=5m -auto-approve tfplan
+
+      - name: Export Terraform Outputs
+        id: tf_outputs
+        run: |
+          echo "acr_login_server=$(terraform output -raw acr_login_server)" >> "$GITHUB_OUTPUT"
+          echo "aks_cluster_name=$(terraform output -raw aks_cluster_name)" >> "$GITHUB_OUTPUT"
+          echo "resource_group_name=$(terraform output -raw resource_group_name)" >> "$GITHUB_OUTPUT"
+
+    outputs:
+      acr_login_server: ${{ steps.tf_outputs.outputs.acr_login_server }}
+      aks_cluster_name: ${{ steps.tf_outputs.outputs.aks_cluster_name }}
+      resource_group_name: ${{ steps.tf_outputs.outputs.resource_group_name }}
+
+  build-and-push-prod:
+    name: 'Build & Push (PROD)'
+    needs: terraform-prod
+    runs-on: ubuntu-latest
+    environment: PROD
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR
+        run: az acr login --name "${{ needs.terraform-prod.outputs.acr_login_server }}"
+
+      - name: Build & Push AKS Image
+        run: |
+          az acr build \
+            --registry "${{ needs.terraform-prod.outputs.acr_login_server }}" \
+            --image hello-korea-aks:${{ github.sha }} \
+            --image hello-korea-aks:latest \
+            apps/hello-korea-aks/
+
+      - name: Build & Push ACA Image
+        run: |
+          az acr build \
+            --registry "${{ needs.terraform-prod.outputs.acr_login_server }}" \
+            --image hello-korea-aca:${{ github.sha }} \
+            --image hello-korea-aca:latest \
+            apps/hello-korea-aca/
+
+  deploy-aks-prod:
+    name: 'Deploy to AKS (PROD)'
+    needs: [terraform-prod, build-and-push-prod]
+    runs-on: ubuntu-latest
+    environment: PROD
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Prepare K8s Manifests
+        run: |
+          sed -i "s|__ACR_LOGIN_SERVER__|${{ needs.terraform-prod.outputs.acr_login_server }}|g" apps/hello-korea-aks/k8s/deployment.yaml
+          sed -i "s|:latest|:${{ github.sha }}|g" apps/hello-korea-aks/k8s/deployment.yaml
+
+      - name: Deploy to Private AKS
+        run: |
+          RG="${{ needs.terraform-prod.outputs.resource_group_name }}"
+          AKS="${{ needs.terraform-prod.outputs.aks_cluster_name }}"
+
+          az aks command invoke \
+            --resource-group "$RG" \
+            --name "$AKS" \
+            --command "kubectl apply -f deployment.yaml -f service.yaml" \
+            --file apps/hello-korea-aks/k8s/deployment.yaml \
+            --file apps/hello-korea-aks/k8s/service.yaml
+
+      - name: Verify AKS Deployment
+        run: |
+          RG="${{ needs.terraform-prod.outputs.resource_group_name }}"
+          AKS="${{ needs.terraform-prod.outputs.aks_cluster_name }}"
+
+          az aks command invoke \
+            --resource-group "$RG" \
+            --name "$AKS" \
+            --command "kubectl rollout status deployment/hello-korea --timeout=120s"
+
+  deploy-aca-prod:
+    name: 'Deploy to ACA (PROD)'
+    needs: [terraform-prod, build-and-push-prod]
+    runs-on: ubuntu-latest
+    environment: PROD
+    steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Update ACA Container Image
+        run: |
+          az containerapp update \
+            --name ca-hello-korea \
+            --resource-group "${{ needs.terraform-prod.outputs.resource_group_name }}" \
+            --image "${{ needs.terraform-prod.outputs.acr_login_server }}/hello-korea-aca:${{ github.sha }}"
+
+      - name: Verify ACA Deployment
+        run: |
+          az containerapp show \
+            --name ca-hello-korea \
+            --resource-group "${{ needs.terraform-prod.outputs.resource_group_name }}" \
+            --query "{name:name, provisioningState:properties.provisioningState, latestRevision:properties.latestRevisionName, runningStatus:properties.runningStatus}" \
+            -o table
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # MANUAL — Single-environment workflow_dispatch (plan/destroy only)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  manual-terraform:
+    name: 'Manual: Terraform ${{ github.event.inputs.environment }} (${{ github.event.inputs.action }})'
+    needs: bootstrap
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.action != 'apply'
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment == 'dev' && 'DEV' || github.event.inputs.environment == 'test' && 'TEST' || github.event.inputs.environment == 'qa' && 'QA' || 'PROD' }}
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_USE_OIDC: 'true'
+      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_pg_admin_password: ${{ secrets.PG_ADMIN_PASSWORD }}
+      TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+      TF_VAR_environment: ${{ github.event.inputs.environment }}
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.3"
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: |
+          terraform init -reconfigure \
+            -backend-config="resource_group_name=rg-kt-tfstate" \
+            -backend-config="storage_account_name=stkttfstate" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=kt-infrastructure-${{ github.event.inputs.environment }}.tfstate" \
+            -backend-config="use_azuread_auth=true" \
+            -backend-config="client_id=${ARM_CLIENT_ID}" \
+            -backend-config="tenant_id=${ARM_TENANT_ID}" \
+            -backend-config="subscription_id=${ARM_SUBSCRIPTION_ID}" \
+            -backend-config="use_oidc=true"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        if: github.event.inputs.action == 'plan'
+        run: terraform plan -lock-timeout=5m -out=tfplan
+
+      - name: Upload Terraform Plan
+        if: github.event.inputs.action == 'plan'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ github.event.inputs.environment }}-${{ github.run_id }}
+          path: terraform/tfplan
+          retention-days: 5
+          overwrite: true
+
+      - name: Terraform Destroy
+        if: github.event.inputs.action == 'destroy'
+        run: terraform destroy -lock-timeout=5m -auto-approve

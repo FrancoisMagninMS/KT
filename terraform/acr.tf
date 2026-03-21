@@ -4,6 +4,7 @@ resource "azurerm_container_registry" "acr" {
   location            = azurerm_resource_group.main.location
   sku                 = var.acr_sku
   admin_enabled       = false
+  tags                = local.common_tags
 }
 
 # AKS kubelet MI — pull images

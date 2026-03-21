@@ -7,7 +7,7 @@
 # ── Core ─────────────────────────────────────────────────────
 # subscription_id = "00000000-0000-0000-0000-000000000000"
 location    = "koreacentral"
-environment = "prod"
+environment = "dev"  # One of: dev, test, qa, prod
 project     = "kt"
 
 # ── Networking ───────────────────────────────────────────────
