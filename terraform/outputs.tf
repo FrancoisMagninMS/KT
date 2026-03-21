@@ -65,6 +65,14 @@ output "key_vault_name" {
   value = azurerm_key_vault.main.name
 }
 
+output "tenant_id" {
+  value = data.azurerm_client_config.current.tenant_id
+}
+
+output "aks_kubelet_client_id" {
+  value = azurerm_user_assigned_identity.aks_kubelet.client_id
+}
+
 output "key_vault_uri" {
   value = azurerm_key_vault.main.vault_uri
 }
@@ -73,10 +81,6 @@ output "key_vault_uri" {
 
 output "aks_controlplane_identity_id" {
   value = azurerm_user_assigned_identity.aks_controlplane.id
-}
-
-output "aks_kubelet_identity_client_id" {
-  value = azurerm_user_assigned_identity.aks_kubelet.client_id
 }
 
 output "aca_identity_client_id" {

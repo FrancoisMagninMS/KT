@@ -337,6 +337,9 @@ jobs:
           echo "acr_login_server=$(terraform output -raw acr_login_server)" >> "$GITHUB_OUTPUT"
           echo "aks_cluster_name=$(terraform output -raw aks_cluster_name)" >> "$GITHUB_OUTPUT"
           echo "resource_group_name=$(terraform output -raw resource_group_name)" >> "$GITHUB_OUTPUT"
+          echo "key_vault_name=$(terraform output -raw key_vault_name)" >> "$GITHUB_OUTPUT"
+          echo "tenant_id=$(terraform output -raw tenant_id)" >> "$GITHUB_OUTPUT"
+          echo "aks_kubelet_client_id=$(terraform output -raw aks_kubelet_client_id)" >> "$GITHUB_OUTPUT"
 
       - name: Terraform Destroy
         if: needs.should-deploy-dev.outputs.action == 'destroy'
@@ -346,6 +349,9 @@ jobs:
       acr_login_server: ${{ steps.tf_outputs.outputs.acr_login_server }}
       aks_cluster_name: ${{ steps.tf_outputs.outputs.aks_cluster_name }}
       resource_group_name: ${{ steps.tf_outputs.outputs.resource_group_name }}
+      key_vault_name: ${{ steps.tf_outputs.outputs.key_vault_name }}
+      tenant_id: ${{ steps.tf_outputs.outputs.tenant_id }}
+      aks_kubelet_client_id: ${{ steps.tf_outputs.outputs.aks_kubelet_client_id }}
 
   build-and-push-dev:
     name: 'Build & Push (DEV)'
@@ -404,8 +410,9 @@ jobs:
         run: |
           sed -i "s|__ACR_LOGIN_SERVER__|${{ needs.terraform-dev.outputs.acr_login_server }}|g" apps/hello-korea-aks/k8s/deployment.yaml
           sed -i "s|:latest|:${{ github.sha }}|g" apps/hello-korea-aks/k8s/deployment.yaml
-          echo "--- Final manifest ---"
-          cat apps/hello-korea-aks/k8s/deployment.yaml
+          sed -i "s|__KEY_VAULT_NAME__|${{ needs.terraform-dev.outputs.key_vault_name }}|g" apps/hello-korea-aks/k8s/secret-provider-class.yaml
+          sed -i "s|__TENANT_ID__|${{ needs.terraform-dev.outputs.tenant_id }}|g" apps/hello-korea-aks/k8s/secret-provider-class.yaml
+          sed -i "s|__KUBELET_CLIENT_ID__|${{ needs.terraform-dev.outputs.aks_kubelet_client_id }}|g" apps/hello-korea-aks/k8s/secret-provider-class.yaml
 
       - name: Deploy to Private AKS
         run: |
@@ -415,7 +422,8 @@ jobs:
           az aks command invoke \
             --resource-group "$RG" \
             --name "$AKS" \
-            --command "kubectl apply -f deployment.yaml -f service.yaml" \
+            --command "kubectl apply -f secret-provider-class.yaml -f deployment.yaml -f service.yaml" \
+            --file apps/hello-korea-aks/k8s/secret-provider-class.yaml \
             --file apps/hello-korea-aks/k8s/deployment.yaml \
             --file apps/hello-korea-aks/k8s/service.yaml
 
@@ -538,11 +546,17 @@ jobs:
           echo "acr_login_server=$(terraform output -raw acr_login_server)" >> "$GITHUB_OUTPUT"
           echo "aks_cluster_name=$(terraform output -raw aks_cluster_name)" >> "$GITHUB_OUTPUT"
           echo "resource_group_name=$(terraform output -raw resource_group_name)" >> "$GITHUB_OUTPUT"
+          echo "key_vault_name=$(terraform output -raw key_vault_name)" >> "$GITHUB_OUTPUT"
+          echo "tenant_id=$(terraform output -raw tenant_id)" >> "$GITHUB_OUTPUT"
+          echo "aks_kubelet_client_id=$(terraform output -raw aks_kubelet_client_id)" >> "$GITHUB_OUTPUT"
 
     outputs:
       acr_login_server: ${{ steps.tf_outputs.outputs.acr_login_server }}
       aks_cluster_name: ${{ steps.tf_outputs.outputs.aks_cluster_name }}
       resource_group_name: ${{ steps.tf_outputs.outputs.resource_group_name }}
+      key_vault_name: ${{ steps.tf_outputs.outputs.key_vault_name }}
+      tenant_id: ${{ steps.tf_outputs.outputs.tenant_id }}
+      aks_kubelet_client_id: ${{ steps.tf_outputs.outputs.aks_kubelet_client_id }}
 
   build-and-push-test:
     name: 'Build & Push (TEST)'
@@ -599,6 +613,9 @@ jobs:
         run: |
           sed -i "s|__ACR_LOGIN_SERVER__|${{ needs.terraform-test.outputs.acr_login_server }}|g" apps/hello-korea-aks/k8s/deployment.yaml
           sed -i "s|:latest|:${{ github.sha }}|g" apps/hello-korea-aks/k8s/deployment.yaml
+          sed -i "s|__KEY_VAULT_NAME__|${{ needs.terraform-test.outputs.key_vault_name }}|g" apps/hello-korea-aks/k8s/secret-provider-class.yaml
+          sed -i "s|__TENANT_ID__|${{ needs.terraform-test.outputs.tenant_id }}|g" apps/hello-korea-aks/k8s/secret-provider-class.yaml
+          sed -i "s|__KUBELET_CLIENT_ID__|${{ needs.terraform-test.outputs.aks_kubelet_client_id }}|g" apps/hello-korea-aks/k8s/secret-provider-class.yaml
 
       - name: Deploy to Private AKS
         run: |
@@ -608,7 +625,8 @@ jobs:
           az aks command invoke \
             --resource-group "$RG" \
             --name "$AKS" \
-            --command "kubectl apply -f deployment.yaml -f service.yaml" \
+            --command "kubectl apply -f secret-provider-class.yaml -f deployment.yaml -f service.yaml" \
+            --file apps/hello-korea-aks/k8s/secret-provider-class.yaml \
             --file apps/hello-korea-aks/k8s/deployment.yaml \
             --file apps/hello-korea-aks/k8s/service.yaml
 
@@ -730,11 +748,17 @@ jobs:
           echo "acr_login_server=$(terraform output -raw acr_login_server)" >> "$GITHUB_OUTPUT"
           echo "aks_cluster_name=$(terraform output -raw aks_cluster_name)" >> "$GITHUB_OUTPUT"
           echo "resource_group_name=$(terraform output -raw resource_group_name)" >> "$GITHUB_OUTPUT"
+          echo "key_vault_name=$(terraform output -raw key_vault_name)" >> "$GITHUB_OUTPUT"
+          echo "tenant_id=$(terraform output -raw tenant_id)" >> "$GITHUB_OUTPUT"
+          echo "aks_kubelet_client_id=$(terraform output -raw aks_kubelet_client_id)" >> "$GITHUB_OUTPUT"
 
     outputs:
       acr_login_server: ${{ steps.tf_outputs.outputs.acr_login_server }}
       aks_cluster_name: ${{ steps.tf_outputs.outputs.aks_cluster_name }}
       resource_group_name: ${{ steps.tf_outputs.outputs.resource_group_name }}
+      key_vault_name: ${{ steps.tf_outputs.outputs.key_vault_name }}
+      tenant_id: ${{ steps.tf_outputs.outputs.tenant_id }}
+      aks_kubelet_client_id: ${{ steps.tf_outputs.outputs.aks_kubelet_client_id }}
 
   build-and-push-qa:
     name: 'Build & Push (QA)'
@@ -791,6 +815,9 @@ jobs:
         run: |
           sed -i "s|__ACR_LOGIN_SERVER__|${{ needs.terraform-qa.outputs.acr_login_server }}|g" apps/hello-korea-aks/k8s/deployment.yaml
           sed -i "s|:latest|:${{ github.sha }}|g" apps/hello-korea-aks/k8s/deployment.yaml
+          sed -i "s|__KEY_VAULT_NAME__|${{ needs.terraform-qa.outputs.key_vault_name }}|g" apps/hello-korea-aks/k8s/secret-provider-class.yaml
+          sed -i "s|__TENANT_ID__|${{ needs.terraform-qa.outputs.tenant_id }}|g" apps/hello-korea-aks/k8s/secret-provider-class.yaml
+          sed -i "s|__KUBELET_CLIENT_ID__|${{ needs.terraform-qa.outputs.aks_kubelet_client_id }}|g" apps/hello-korea-aks/k8s/secret-provider-class.yaml
 
       - name: Deploy to Private AKS
         run: |
@@ -800,7 +827,8 @@ jobs:
           az aks command invoke \
             --resource-group "$RG" \
             --name "$AKS" \
-            --command "kubectl apply -f deployment.yaml -f service.yaml" \
+            --command "kubectl apply -f secret-provider-class.yaml -f deployment.yaml -f service.yaml" \
+            --file apps/hello-korea-aks/k8s/secret-provider-class.yaml \
             --file apps/hello-korea-aks/k8s/deployment.yaml \
             --file apps/hello-korea-aks/k8s/service.yaml
 
@@ -922,11 +950,17 @@ jobs:
           echo "acr_login_server=$(terraform output -raw acr_login_server)" >> "$GITHUB_OUTPUT"
           echo "aks_cluster_name=$(terraform output -raw aks_cluster_name)" >> "$GITHUB_OUTPUT"
           echo "resource_group_name=$(terraform output -raw resource_group_name)" >> "$GITHUB_OUTPUT"
+          echo "key_vault_name=$(terraform output -raw key_vault_name)" >> "$GITHUB_OUTPUT"
+          echo "tenant_id=$(terraform output -raw tenant_id)" >> "$GITHUB_OUTPUT"
+          echo "aks_kubelet_client_id=$(terraform output -raw aks_kubelet_client_id)" >> "$GITHUB_OUTPUT"
 
     outputs:
       acr_login_server: ${{ steps.tf_outputs.outputs.acr_login_server }}
       aks_cluster_name: ${{ steps.tf_outputs.outputs.aks_cluster_name }}
       resource_group_name: ${{ steps.tf_outputs.outputs.resource_group_name }}
+      key_vault_name: ${{ steps.tf_outputs.outputs.key_vault_name }}
+      tenant_id: ${{ steps.tf_outputs.outputs.tenant_id }}
+      aks_kubelet_client_id: ${{ steps.tf_outputs.outputs.aks_kubelet_client_id }}
 
   build-and-push-prod:
     name: 'Build & Push (PROD)'
@@ -983,6 +1017,9 @@ jobs:
         run: |
           sed -i "s|__ACR_LOGIN_SERVER__|${{ needs.terraform-prod.outputs.acr_login_server }}|g" apps/hello-korea-aks/k8s/deployment.yaml
           sed -i "s|:latest|:${{ github.sha }}|g" apps/hello-korea-aks/k8s/deployment.yaml
+          sed -i "s|__KEY_VAULT_NAME__|${{ needs.terraform-prod.outputs.key_vault_name }}|g" apps/hello-korea-aks/k8s/secret-provider-class.yaml
+          sed -i "s|__TENANT_ID__|${{ needs.terraform-prod.outputs.tenant_id }}|g" apps/hello-korea-aks/k8s/secret-provider-class.yaml
+          sed -i "s|__KUBELET_CLIENT_ID__|${{ needs.terraform-prod.outputs.aks_kubelet_client_id }}|g" apps/hello-korea-aks/k8s/secret-provider-class.yaml
 
       - name: Deploy to Private AKS
         run: |
@@ -992,7 +1029,8 @@ jobs:
           az aks command invoke \
             --resource-group "$RG" \
             --name "$AKS" \
-            --command "kubectl apply -f deployment.yaml -f service.yaml" \
+            --command "kubectl apply -f secret-provider-class.yaml -f deployment.yaml -f service.yaml" \
+            --file apps/hello-korea-aks/k8s/secret-provider-class.yaml \
             --file apps/hello-korea-aks/k8s/deployment.yaml \
             --file apps/hello-korea-aks/k8s/service.yaml
 

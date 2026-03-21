@@ -38,3 +38,30 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
+          volumeMounts:
+            - name: secrets-store
+              mountPath: "/mnt/secrets-store"
+              readOnly: true
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pg-secrets
+                  key: PG_PASSWORD
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: pg-secrets
+                  key: PG_USERNAME
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: pg-secrets
+                  key: PG_HOST
+      volumes:
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: azure-kvs

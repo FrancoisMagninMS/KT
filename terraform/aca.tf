@@ -47,6 +47,24 @@ resource "azurerm_container_app" "hello_korea" {
     identity = azurerm_user_assigned_identity.aca.id
   }
 
+  secret {
+    name                = "pg-admin-password"
+    key_vault_secret_id = azurerm_key_vault_secret.pg_password.versionless_id
+    identity            = azurerm_user_assigned_identity.aca.id
+  }
+
+  secret {
+    name                = "pg-admin-login"
+    key_vault_secret_id = azurerm_key_vault_secret.pg_login.versionless_id
+    identity            = azurerm_user_assigned_identity.aca.id
+  }
+
+  secret {
+    name                = "pg-host"
+    key_vault_secret_id = azurerm_key_vault_secret.pg_host.versionless_id
+    identity            = azurerm_user_assigned_identity.aca.id
+  }
+
   ingress {
     external_enabled = true
     target_port      = 8080
@@ -62,6 +80,21 @@ resource "azurerm_container_app" "hello_korea" {
       image  = "mcr.microsoft.com/k8se/quickstart:latest"
       cpu    = 0.25
       memory = "0.5Gi"
+
+      env {
+        name        = "PG_PASSWORD"
+        secret_name = "pg-admin-password"
+      }
+
+      env {
+        name        = "PG_USERNAME"
+        secret_name = "pg-admin-login"
+      }
+
+      env {
+        name        = "PG_HOST"
+        secret_name = "pg-host"
+      }
     }
   }
 }

@@ -14,6 +14,20 @@ def hello():
     )
 
 
+@app.route("/dbinfo")
+def dbinfo():
+    pg_host = "set" if os.getenv("PG_HOST") else "not-set"
+    pg_user = "set" if os.getenv("PG_USERNAME") else "not-set"
+    pg_pass = "set" if os.getenv("PG_PASSWORD") else "not-set"
+    return (
+        f"<h1>Database Configuration</h1>"
+        f"<p>PG_HOST: {pg_host}</p>"
+        f"<p>PG_USERNAME: {pg_user}</p>"
+        f"<p>PG_PASSWORD: {pg_pass}</p>"
+        f"<p><i>Sourced from Azure Key Vault via CSI driver</i></p>"
+    )
+
+
 @app.route("/health")
 def health():
     return "OK", 200
