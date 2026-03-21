@@ -42,3 +42,21 @@ resource "azurerm_key_vault_secret" "pg_password" {
 
   depends_on = [azurerm_role_assignment.kv_deployer]
 }
+
+# Store PostgreSQL admin login in Key Vault
+resource "azurerm_key_vault_secret" "pg_login" {
+  name         = "pg-admin-login"
+  value        = var.pg_admin_login
+  key_vault_id = azurerm_key_vault.main.id
+
+  depends_on = [azurerm_role_assignment.kv_deployer]
+}
+
+# Store PostgreSQL host in Key Vault
+resource "azurerm_key_vault_secret" "pg_host" {
+  name         = "pg-host"
+  value        = azurerm_postgresql_flexible_server.main.fqdn
+  key_vault_id = azurerm_key_vault.main.id
+
+  depends_on = [azurerm_role_assignment.kv_deployer]
+}

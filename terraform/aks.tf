@@ -55,6 +55,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
     azurerm_role_assignment.aks_cp_network,
     azurerm_role_assignment.aks_cp_mi_operator,
     azurerm_subnet_nat_gateway_association.aks,
+    azurerm_nat_gateway_public_ip_association.main,
   ]
 }
 
