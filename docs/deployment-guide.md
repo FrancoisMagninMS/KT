@@ -621,3 +621,48 @@ cd terraform
 terraform init -backend-config="key=kt-infrastructure-<env>.tfstate" ...
 TF_VAR_environment=<env> terraform destroy
 ```
+
+### Key Vault 403 during Terraform plan
+
+**Error**: `Error retrieving Key Vault secret: keyvault.BaseClient#GetSecret: StatusCode=403 -- ForbiddenByPolicy`
+
+**Cause**: The Key Vault has `publicNetworkAccess` set to `Disabled`, blocking connections from GitHub Actions runners. This can happen if an Azure security policy automatically disables public network access on Key Vault resources.
+
+**Fix**: Re-enable public network access on the affected Key Vault(s):
+
+```powershell
+az keyvault update --name kv-kt-<env>-<suffix> `
+  --resource-group rg-kt-<env> `
+  --public-network-access Enabled
+```
+
+The Terraform configuration sets `public_network_access_enabled = true` on the Key Vault, so subsequent applies will maintain this setting.
+
+### AKS or PostgreSQL is stopped
+
+**Error**: Terraform plan/apply fails with errors referencing a cluster or server that appears unavailable (e.g., `Code="Conflict"` on AKS, or connection errors to PostgreSQL).
+
+**Cause**: The AKS cluster or PostgreSQL Flexible Server was stopped — either manually or by Azure cost optimization / Dev/Test auto-shutdown.
+
+**Fix**: Start the stopped resource(s) before re-running the pipeline:
+
+```powershell
+# Start AKS
+az aks start --name aks-kt-<env> --resource-group rg-kt-<env>
+
+# Wait for AKS to be fully running (can take several minutes)
+az aks wait --name aks-kt-<env> --resource-group rg-kt-<env> --updated
+
+# Start PostgreSQL
+az postgres flexible-server start --name psql-kt-<env> --resource-group rg-kt-<env>
+```
+
+Verify the resources are ready before re-running:
+
+```powershell
+# Check AKS status (should show "Running")
+az aks show --name aks-kt-<env> --resource-group rg-kt-<env> --query "powerState.code" -o tsv
+
+# Check PostgreSQL status (should show "Ready")
+az postgres flexible-server show --name psql-kt-<env> --resource-group rg-kt-<env> --query "state" -o tsv
+```
