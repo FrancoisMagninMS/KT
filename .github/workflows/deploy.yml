@@ -111,7 +111,7 @@ jobs:
 
       # ── Detect secrets in code ──
       - name: Detect Secrets
-        uses: trufflesecurity/trufflehog@v3.88.12
+        uses: trufflesecurity/trufflehog@v3.93.8
         with:
           extra_args: --only-verified --results=verified
 
