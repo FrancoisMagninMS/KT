@@ -319,7 +319,7 @@ jobs:
         run: terraform plan -lock-timeout=5m -out=tfplan
 
       - name: Upload Terraform Plan
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tfplan-dev-${{ github.run_id }}
           path: terraform/tfplan
@@ -522,7 +522,7 @@ jobs:
         run: terraform plan -lock-timeout=5m -out=tfplan
 
       - name: Upload Terraform Plan
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tfplan-test-${{ github.run_id }}
           path: terraform/tfplan
@@ -714,7 +714,7 @@ jobs:
         run: terraform plan -lock-timeout=5m -out=tfplan
 
       - name: Upload Terraform Plan
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tfplan-qa-${{ github.run_id }}
           path: terraform/tfplan
@@ -906,7 +906,7 @@ jobs:
         run: terraform plan -lock-timeout=5m -out=tfplan
 
       - name: Upload Terraform Plan
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tfplan-prod-${{ github.run_id }}
           path: terraform/tfplan
@@ -1097,7 +1097,7 @@ jobs:
 
       - name: Upload Terraform Plan
         if: github.event.inputs.action == 'plan'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tfplan-${{ github.event.inputs.environment }}-${{ github.run_id }}
           path: terraform/tfplan
